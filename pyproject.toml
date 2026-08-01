@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "circle-client-skill"
+version = "0.1.0"
+description = "Unofficial local-first Circle member notification client and agent skill"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Circle Client Skill contributors"}]
+keywords = ["circle", "notifications", "agent-skill", "community"]
+dependencies = [
+  "python-dotenv>=1.0,<2",
+  "requests>=2.32,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9",
+  "ruff>=0.9,<1",
+]
+
+[project.scripts]
+circle-client = "circle_client_skill.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/circle_client_skill"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+markers = ["live: opt-in tests against a logged-in Circle community"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
