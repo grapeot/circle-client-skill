@@ -63,7 +63,7 @@ def cmd_configure(args: argparse.Namespace) -> None:
 
 def cmd_auth_status(args: argparse.Namespace) -> None:
     settings = load_settings(Path(args.env_file))
-    expiration = jwt_expiration(settings.authorization)
+    expiration = jwt_expiration(settings.authorization) if settings.authorization else None
     now = datetime.now(UTC)
     print(
         json.dumps(
@@ -71,6 +71,8 @@ def cmd_auth_status(args: argparse.Namespace) -> None:
                 "configured": True,
                 "host": urlsplit(settings.notifications_url).netloc,
                 "cookie_present": bool(settings.cookie),
+                "csrf_present": bool(settings.csrf_token),
+                "jwt_present": bool(settings.authorization),
                 "jwt_expires_at": expiration.isoformat() if expiration else None,
                 "jwt_expired": expiration <= now if expiration else None,
             },
@@ -147,6 +149,16 @@ def cmd_configure_browser(args: argparse.Namespace) -> None:
                 "document.documentElement.getAttribute('data-circle-frontend-version') || null"
             )
 
+            # Extract community_id from localStorage (PunditUserContext)
+            community_id = await page.evaluate(
+                "() => { try { "
+                "const ctx = JSON.parse(localStorage.getItem('V1-PunditUserContext') || '{}'); "
+                "const c = ctx.state?.current_community || ctx.current_community || {}; "
+                "return String(c.id || ''); "
+                "} catch(e) { return ''; } }"
+            )
+            community_id = community_id or None
+
             await browser.close()
 
             return {
@@ -154,6 +166,7 @@ def cmd_configure_browser(args: argparse.Namespace) -> None:
                 "csrf_token": csrf_value,
                 "user_agent": user_agent,
                 "frontend_version": frontend_version,
+                "community_id": community_id,
                 "cookie_count": len(relevant),
             }
 
@@ -165,6 +178,7 @@ def cmd_configure_browser(args: argparse.Namespace) -> None:
         csrf_token=result["csrf_token"],
         user_agent=result["user_agent"],
         frontend_version=result["frontend_version"],
+        community_id=result["community_id"],
     )
     env_path = Path(args.env_file)
     save_settings(settings, env_path)

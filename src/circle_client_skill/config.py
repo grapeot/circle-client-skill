@@ -21,7 +21,7 @@ class CircleSettings:
     notifications_url: str
     count_url: str
     reset_count_url: str
-    authorization: str
+    authorization: str | None = None
     cookie: str | None = None
     user_agent: str | None = None
     referer: str | None = None
@@ -36,10 +36,9 @@ class CircleSettings:
         return f"{parts.scheme}://{parts.netloc}"
 
     def headers(self, *, mutation: bool = False) -> dict[str, str]:
-        headers = {
-            "Accept": "application/json",
-            "Authorization": self.authorization,
-        }
+        headers: dict[str, str] = {"Accept": "application/json"}
+        if self.authorization:
+            headers["Authorization"] = self.authorization
         optional = {
             "Cookie": self.cookie,
             "User-Agent": self.user_agent,
@@ -196,14 +195,14 @@ def load_settings(env_path: Path) -> CircleSettings:
     values = dotenv_values(env_path)
     missing = [
         key
-        for key in (ENV_KEYS["notifications_url"], ENV_KEYS["authorization"])
+        for key in (ENV_KEYS["notifications_url"],)
         if not values.get(key)
     ]
     if missing:
         raise ConfigurationError(f"Missing configuration: {', '.join(missing)}")
     notifications_url = str(values[ENV_KEYS["notifications_url"]])
-    authorization = str(values[ENV_KEYS["authorization"]])
-    _, derived_count_url, derived_reset_count_url = _derive_urls(notifications_url, authorization)
+    authorization = str(values[ENV_KEYS["authorization"]]) if values.get(ENV_KEYS["authorization"]) else None
+    _, derived_count_url, derived_reset_count_url = _derive_urls(notifications_url, authorization or "")
     settings = CircleSettings(
         notifications_url=notifications_url,
         count_url=str(values.get(ENV_KEYS["count_url"]) or derived_count_url),
@@ -231,7 +230,9 @@ def load_settings(env_path: Path) -> CircleSettings:
     return settings
 
 
-def jwt_expiration(authorization: str) -> datetime | None:
+def jwt_expiration(authorization: str | None) -> datetime | None:
+    if not authorization:
+        return None
     try:
         return datetime.fromtimestamp(int(_jwt_claims(authorization)["exp"]), tz=UTC)
     except (KeyError, TypeError, ValueError):
@@ -244,6 +245,7 @@ def build_settings_from_cookies(
     csrf_token: str | None,
     user_agent: str | None = None,
     frontend_version: str | None = None,
+    community_id: str | None = None,
 ) -> CircleSettings:
     """Build CircleSettings from browser cookies instead of a cURL import.
 
@@ -256,14 +258,17 @@ def build_settings_from_cookies(
 
     base = f"{parsed.scheme}://{parsed.netloc}"
     notifications_url = f"{base}/internal_api/notifications"
+    count_query = urlencode({"community_id": community_id}) if community_id else ""
     count_url = f"{base}/internal_api/notifications/new_notifications_count"
+    if count_query:
+        count_url = f"{count_url}?{count_query}"
     reset_count_url = f"{base}/internal_api/notifications/mark_all_as_read"
 
     return CircleSettings(
         notifications_url=notifications_url,
         count_url=count_url,
         reset_count_url=reset_count_url,
-        authorization="Bearer browser-session",
+        authorization=None,
         cookie=cookie_header,
         user_agent=user_agent,
         referer=f"{base}/",
