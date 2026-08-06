@@ -129,8 +129,16 @@ def cmd_configure_browser(args: argparse.Namespace) -> None:
 
             # Extract cookies via CDP
             cookies = await context.cookies()
+            # Match by root domain: strip leading "www." or "." for comparison
             target_domain = urlsplit(args.url).netloc
-            relevant = [c for c in cookies if target_domain in c.get("domain", "")]
+            # Also match parent domain (e.g., www.superlinear.academy → superlinear.academy)
+            root_domain = target_domain.removeprefix("www.")
+            relevant = [
+                c for c in cookies
+                if target_domain in c.get("domain", "")
+                or root_domain in c.get("domain", "")
+                or c.get("domain", "").lstrip(".") in (target_domain, root_domain)
+            ]
             if not relevant:
                 raise ConfigurationError(
                     f"No cookies found for {target_domain}. Make sure you are logged in."
