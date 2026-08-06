@@ -26,6 +26,7 @@ description: >-
 从项目根目录运行：
 
 ```bash
+# 通知（V0）
 .venv/bin/circle-client configure --from-clipboard
 .venv/bin/circle-client auth-status
 .venv/bin/circle-client count
@@ -35,9 +36,23 @@ description: >-
 .venv/bin/circle-client render --input data/notifications.json --format csv --output data/notifications.csv
 .venv/bin/circle-client render --input data/notifications.json --format html --output data/index.html
 .venv/bin/circle-client serve --directory data --host 0.0.0.0 --port 8765
+
+# 帖子、空间、评论、图片、聊天（V1）
+.venv/bin/circle-client spaces
+.venv/bin/circle-client list-posts -s <space_id> [--page N] [--per-page N]
+.venv/bin/circle-client create-post -s <space_id> --name "Title" --user-id <id> --dry-run
+.venv/bin/circle-client create-post -s <space_id> --name "Title" --user-id <id> --execute --confirm CREATE-POST
+.venv/bin/circle-client update-post -s <space_id> --post-id <id> --slug <slug> --name "New" --user-id <id> --execute --confirm UPDATE-POST
+.venv/bin/circle-client delete-post -s <space_id> --slug <slug> --execute --confirm DELETE-POST
+.venv/bin/circle-client reply-post --post-id <id> --text "Reply" --execute --confirm REPLY-POST
+.venv/bin/circle-client upload-image -f <path> --execute --confirm UPLOAD-IMAGE
+.venv/bin/circle-client chat-send --room-uuid <uuid> --participant-id <id> --text "Hello" --execute --confirm CHAT-SEND
+.venv/bin/circle-client list-chat-messages --room-uuid <uuid> [--page N] [--per-page N]
 ```
 
 `fetch` 默认在连续 100 条已读记录后停止。用户明确要求完整历史审计时才使用 `--stop-after-consecutive-read 0`。
+
+所有 mutation 命令（create-post、update-post、delete-post、reply-post、upload-image、chat-send、reset-count）默认 dry-run，打印 preflight 不碰网络。Live 执行需同时提供 `--execute --confirm <ACTION>`，且用户当次明确授权。
 
 ## 安全边界
 

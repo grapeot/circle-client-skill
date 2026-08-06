@@ -29,6 +29,12 @@ class CircleSettings:
     csrf_token: str | None = None
     origin: str | None = None
 
+    @property
+    def base_url(self) -> str:
+        """Derive the community base URL from the notifications URL."""
+        parts = urlparse(self.notifications_url)
+        return f"{parts.scheme}://{parts.netloc}"
+
     def headers(self, *, mutation: bool = False) -> dict[str, str]:
         headers = {
             "Accept": "application/json",
