@@ -359,15 +359,31 @@ def cmd_get_space(args: argparse.Namespace) -> None:
 
 def cmd_list_posts(args: argparse.Namespace) -> None:
     settings = load_settings(Path(args.env_file))
-    result = CircleClient(settings, timeout=args.timeout).list_posts(
+    client = CircleClient(settings, timeout=args.timeout)
+    result = client.list_posts(
         space_id=args.space_id, page=args.page, per_page=args.per_page
     )
     records = result.get("records", [])
+    if args.with_counts:
+        # Circle's post-list endpoint does not return per-post likes/comments
+        # counts. Fetch each post's comment count with a per_page=1 probe. This
+        # is N+1; opt in explicitly with --with-counts. Post-level likes count
+        # is not available via the member-session API at all.
+        for post in records:
+            post_id = post.get("id")
+            if post_id is None:
+                continue
+            try:
+                comments = client.list_comments(post_id, per_page=1, page=1)
+                post["comments_count"] = comments.get("count", 0)
+            except CircleClientError:
+                post["comments_count"] = None
     if args.full:
         posts = records
     else:
         posts = [{"id": p.get("id"), "name": p.get("name"), "slug": p.get("slug"),
-                    "published_at": p.get("published_at"), "community_member_id": p.get("community_member_id")}
+                    "published_at": p.get("published_at"), "community_member_id": p.get("community_member_id"),
+                    "comments_count": p.get("comments_count")}
                    for p in records]
     if args.json:
         _print_json({
@@ -730,6 +746,11 @@ def build_parser() -> argparse.ArgumentParser:
     list_posts.add_argument("--page", type=int, default=1)
     list_posts.add_argument("--per-page", type=int, default=24)
     list_posts.add_argument("--full", action="store_true", help="Return full post records (including body)")
+    list_posts.add_argument(
+        "--with-counts",
+        action="store_true",
+        help="Fetch per-post comment count (N+1 requests; post-level likes are not available via the member API)",
+    )
     list_posts.add_argument("--timeout", type=float, default=30)
     list_posts.set_defaults(handler=cmd_list_posts)
 

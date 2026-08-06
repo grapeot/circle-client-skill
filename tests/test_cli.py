@@ -74,6 +74,89 @@ def test_chat_parser_accepts_json_after_subcommand_and_direction_defaults() -> N
     assert replies.next_per_page == 50
 
 
+def test_list_posts_with_counts_injects_comment_count(monkeypatch, capsys) -> None:
+    """`--with-counts` probes list_comments per post and injects comments_count."""
+    calls = {"list_comments": []}
+
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None: ...
+
+        def list_posts(self, *, space_id, page, per_page):
+            return {
+                "records": [{"id": 10, "name": "A", "slug": "a"}, {"id": 20, "name": "B", "slug": "b"}],
+                "count": 2, "page": 1, "per_page": per_page, "has_next_page": False,
+            }
+
+        def list_comments(self, post_id, *, per_page=1, page=1):
+            calls["list_comments"].append(post_id)
+            # 第一个 post 3 条评论, 第二个 0 条
+            return {"count": 3 if post_id == 10 else 0, "records": [], "has_next_page": False}
+
+    monkeypatch.setattr(cli, "load_settings", lambda _path: object())
+    monkeypatch.setattr(cli, "CircleClient", FakeClient)
+    args = argparse.Namespace(
+        env_file="unused.env", timeout=30, space_id=12, page=1, per_page=24,
+        full=False, with_counts=True, json=True,
+    )
+    cli.cmd_list_posts(args)
+    output = json.loads(capsys.readouterr().out)
+    counts = {p["id"]: p["comments_count"] for p in output["posts"]}
+    assert counts == {10: 3, 20: 0}
+    assert calls["list_comments"] == [10, 20]
+
+
+def test_list_posts_without_counts_does_not_probe_comments(monkeypatch, capsys) -> None:
+    probed = []
+
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None: ...
+
+        def list_posts(self, *, space_id, page, per_page):
+            return {"records": [{"id": 1, "name": "X", "slug": "x"}], "count": 1, "page": 1,
+                    "per_page": per_page, "has_next_page": False}
+
+        def list_comments(self, *_a, **_kw):
+            probed.append(1)
+            return {"count": 0, "records": []}
+
+    monkeypatch.setattr(cli, "load_settings", lambda _path: object())
+    monkeypatch.setattr(cli, "CircleClient", FakeClient)
+    args = argparse.Namespace(
+        env_file="unused.env", timeout=30, space_id=12, page=1, per_page=24,
+        full=False, with_counts=False, json=True,
+    )
+    cli.cmd_list_posts(args)
+    assert probed == []
+
+
+def test_list_posts_with_counts_tolerates_per_post_failure(monkeypatch, capsys) -> None:
+    """A failed list_comments probe sets comments_count=None; later posts still probed."""
+    from circle_client_skill.client import CircleClientError
+
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None: ...
+
+        def list_posts(self, *, space_id, page, per_page):
+            return {"records": [{"id": 10, "name": "A", "slug": "a"}, {"id": 20, "name": "B", "slug": "b"}],
+                    "count": 2, "page": 1, "per_page": per_page, "has_next_page": False}
+
+        def list_comments(self, post_id, *, per_page=1, page=1):
+            if post_id == 10:
+                raise CircleClientError("boom")
+            return {"count": 5, "records": [], "has_next_page": False}
+
+    monkeypatch.setattr(cli, "load_settings", lambda _path: object())
+    monkeypatch.setattr(cli, "CircleClient", FakeClient)
+    args = argparse.Namespace(
+        env_file="unused.env", timeout=30, space_id=12, page=1, per_page=24,
+        full=False, with_counts=True, json=True,
+    )
+    cli.cmd_list_posts(args)
+    output = json.loads(capsys.readouterr().out)
+    counts = {p["id"]: p["comments_count"] for p in output["posts"]}
+    assert counts == {10: None, 20: 5}
+
+
 def test_list_chat_messages_renders_newest_first(monkeypatch, capsys) -> None:
     """Room-level list reverses ascending API order so newest is on top.
 

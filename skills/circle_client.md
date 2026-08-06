@@ -62,6 +62,8 @@ description: >-
 
 要拿单条全文：post 用 `get-post --slug`；chat message 当前没有单独 fetch 命令，表格预览只截前 80 字符，需要全文时加 `--json` 取 `records[].body`。
 
+要拿每篇 post 的回复数：`list-posts --with-counts`（对每个 post 多发一次 `list_comments per_page=1` 取 `count`，N+1 请求，按需开启）。**post 级别的 likes 数无法通过 member-session API 获取**——Circle 的 post-list 和 post-detail endpoint 都不返回 `likes_count`，也不存在 `/likes` endpoint；只有 comment 对象带 `likes_count`。
+
 ## 排序与分页契约
 
 - **page 内排序**：`list-posts`、`list-chat-messages` 默认 newest-first；`list-chat-replies` 保持 ascending（thread 自上而下阅读）。
@@ -85,7 +87,7 @@ description: >-
 
 # 帖子、空间、评论、图片、聊天（V1）
 .venv/bin/circle-client spaces
-.venv/bin/circle-client list-posts -s <space_id> [--page N] [--per-page N] [--full]
+.venv/bin/circle-client list-posts -s <space_id> [--page N] [--per-page N] [--full] [--with-counts]
 .venv/bin/circle-client get-post -s <space_id> --slug <slug> [--extract-text]
 .venv/bin/circle-client create-post -s <space_id> --name "Title" --user-id <id> --dry-run
 .venv/bin/circle-client create-post -s <space_id> --name "Title" --user-id <id> --execute --confirm CREATE-POST

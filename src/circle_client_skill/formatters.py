@@ -125,6 +125,8 @@ def format_space_card(space: dict) -> str:
 
 
 def format_posts_table(posts: list, full: bool) -> str:
+    # REPLIES 列仅在 post 携带 comments_count 时显示, 由 --with-counts 注入.
+    has_counts = any(post.get("comments_count") is not None for post in posts)
     rows = []
     for post in posts:
         row = [
@@ -134,6 +136,9 @@ def format_posts_table(posts: list, full: bool) -> str:
             _short_time(post.get("published_at")),
             post.get("community_member_id", post.get("author_id", "")),
         ]
+        if has_counts:
+            count = post.get("comments_count")
+            row.append("" if count is None else count)
         if full:
             topics = post.get("topics") or []
             topic_names = [str(topic.get("name", "")) if isinstance(topic, dict) else str(topic) for topic in topics]
@@ -146,6 +151,8 @@ def format_posts_table(posts: list, full: bool) -> str:
         ("PUBLISHED_AT", 20),
         ("AUTHOR_ID", None),
     ]
+    if has_counts:
+        columns.append(("REPLIES", None))
     if full:
         columns.extend([("TOPICS", 30), ("BODY_PREVIEW", 80)])
     return _table(rows, columns)
