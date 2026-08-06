@@ -47,7 +47,8 @@ description: >-
 .venv/bin/circle-client reply-post --post-id <id> --text "Reply" --execute --confirm REPLY-POST
 .venv/bin/circle-client upload-image -f <path> --execute --confirm UPLOAD-IMAGE
 .venv/bin/circle-client chat-send --room-uuid <uuid> --participant-id <id> --text "Hello" --execute --confirm CHAT-SEND
-.venv/bin/circle-client list-chat-messages --room-uuid <uuid> [--page N] [--per-page N]
+.venv/bin/circle-client list-chat-messages --room-uuid <uuid> [--previous-per-page N] [--next-per-page N]
+.venv/bin/circle-client list-chat-replies --room-uuid <uuid> --parent-message-id <id>
 ```
 
 `fetch` 默认在连续 100 条已读记录后停止。用户明确要求完整历史审计时才使用 `--stop-after-consecutive-read 0`。

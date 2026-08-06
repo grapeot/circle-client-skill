@@ -331,15 +331,37 @@ def cmd_chat_send(args: argparse.Namespace) -> None:
 def cmd_list_chat_messages(args: argparse.Namespace) -> None:
     settings = load_settings(Path(args.env_file))
     result = CircleClient(settings, timeout=args.timeout).list_chat_messages(
-        chat_room_uuid=args.room_uuid, page=args.page, per_page=args.per_page
+        chat_room_uuid=args.room_uuid,
+        previous_per_page=args.previous_per_page,
+        next_per_page=args.next_per_page,
+        before_creation_uuid=args.before_creation_uuid,
     )
     records = result.get("records", [])
     print(json.dumps({
         "success": True,
-        "count": result.get("total_count", len(records)),
+        "total_count": result.get("total_count", len(records)),
         "messages": [{"id": m.get("id"), "body": m.get("body"), "created_at": m.get("created_at"),
-                       "chat_room_participant_id": m.get("chat_room_participant_id")}
+                       "chat_room_participant_id": m.get("chat_room_participant_id"),
+                       "parent_message_id": m.get("parent_message_id"),
+                       "chat_thread_id": m.get("chat_thread_id"),
+                       "replies_count": m.get("replies_count")}
                       for m in records],
+    }, ensure_ascii=False, indent=2))
+
+
+def cmd_list_chat_replies(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    replies = CircleClient(settings, timeout=args.timeout).fetch_chat_replies(
+        chat_room_uuid=args.room_uuid,
+        parent_message_id=args.parent_message_id,
+        per_page=args.per_page,
+    )
+    print(json.dumps({
+        "success": True,
+        "count": len(replies),
+        "replies": [{"id": m.get("id"), "body": m.get("body"), "created_at": m.get("created_at"),
+                      "parent_message_id": m.get("parent_message_id")}
+                     for m in replies],
     }, ensure_ascii=False, indent=2))
 
 
@@ -467,10 +489,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_chat = subparsers.add_parser("list-chat-messages", help="List messages in a chat room")
     list_chat.add_argument("--room-uuid", required=True)
-    list_chat.add_argument("--page", type=int, default=1)
-    list_chat.add_argument("--per-page", type=int, default=20)
+    list_chat.add_argument("--previous-per-page", type=int, default=0, help="Number of older messages to fetch")
+    list_chat.add_argument("--next-per-page", type=int, default=50, help="Number of newer messages to fetch")
+    list_chat.add_argument("--before-creation-uuid", default=None, help="Cursor for pagination")
     list_chat.add_argument("--timeout", type=float, default=30)
     list_chat.set_defaults(handler=cmd_list_chat_messages)
+
+    list_replies = subparsers.add_parser("list-chat-replies", help="List thread replies for a message")
+    list_replies.add_argument("--room-uuid", required=True)
+    list_replies.add_argument("--parent-message-id", type=int, required=True)
+    list_replies.add_argument("--per-page", type=int, default=50)
+    list_replies.add_argument("--timeout", type=float, default=30)
+    list_replies.set_defaults(handler=cmd_list_chat_replies)
 
     return parser
 

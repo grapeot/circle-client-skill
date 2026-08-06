@@ -40,7 +40,8 @@ Circle 普通成员可能积累大量未读通知，但 Circle Admin API 和官�
 - 上传图片：两步直传（create blob + PUT to S3），dry-run-first。
 - 列出聊天室消息（分页）。
 - 发送聊天消息：POST 到 `/internal_api/chat_rooms/{uuid}/messages`，dry-run-first。
-- 聊天 thread 回复：在 send message 请求中带 `parent_message_id`。
+- 聊天 thread 回复：在 send message 请求中带 `parent_message_id`，已验证消息进入 thread 视图。
+- 读取 thread 回复：GET `/internal_api/chat_rooms/{uuid}/messages?parent_message_id={id}` 返回 thread 内的全部回复。
 - 所有 mutation 默认 dry-run，live 执行需要 `--execute --confirm <ACTION>` 且用户当次明确授权。
 - 读操作和 mutation 的错误信息透传 HTTP status code 和 response body 片段，不封装成笼统的 "something went wrong"。
 
@@ -49,10 +50,6 @@ Circle 普通成员可能积累大量未读通知，但 Circle Admin API 和官�
 - 把所有未读通知标记为已读。
 
 Mark-all-read 必须来自新的真实浏览器请求。不能因为 reset-count 的内部路径名包含 `mark_all_as_read` 就推断两者语义相同。
-
-- 聊天 thread reply 的 `parent_message_id` 语义需要进一步验证。
-
-实测发现 `parent_message_id` 发送后返回的 `chat_thread_id` 等于 parent message id，但消息是否真正进入 thread 视图、还是变成独立消息，需要浏览器端验证。当前实现照常提交 `parent_message_id`，但标记为待 debug。
 
 ## 非目标
 

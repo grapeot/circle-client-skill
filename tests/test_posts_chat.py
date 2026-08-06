@@ -191,7 +191,7 @@ def test_send_chat_thread_reply() -> None:
     session = FakeSession()
     session.set_response(
         "POST https://community.example.com/internal_api/chat_rooms/abc-123/messages",
-        FakeResponse({"id": 1000}, status_code=202),
+        FakeResponse({"creation_uuid": "test-uuid", "parent_message_id": 999}, status_code=202),
     )
     CircleClient(_settings(), session=session).send_chat_message(
         chat_room_uuid="abc-123",
@@ -210,10 +210,38 @@ def test_list_chat_messages() -> None:
         FakeResponse({"records": [{"id": 1, "body": {}}], "total_count": 1}),
     )
     result = CircleClient(_settings(), session=session).list_chat_messages(
-        chat_room_uuid="abc-123", per_page=5
+        chat_room_uuid="abc-123", next_per_page=5
     )
     assert result["total_count"] == 1
-    assert "per_page=5" in session.calls[0]["url"]
+    assert "next_per_page=5" in session.calls[0]["url"]
+    assert "previous_per_page=0" in session.calls[0]["url"]
+
+
+def test_list_chat_messages_with_cursor() -> None:
+    session = FakeSession()
+    session.set_response(
+        "GET https://community.example.com/internal_api/chat_rooms/abc-123/messages",
+        FakeResponse({"records": []}),
+    )
+    CircleClient(_settings(), session=session).list_chat_messages(
+        chat_room_uuid="abc-123", previous_per_page=50, before_creation_uuid="cursor-abc"
+    )
+    assert "before_creation_uuid=cursor-abc" in session.calls[0]["url"]
+    assert "previous_per_page=50" in session.calls[0]["url"]
+
+
+def test_fetch_chat_replies() -> None:
+    session = FakeSession()
+    session.set_response(
+        "GET https://community.example.com/internal_api/chat_rooms/abc-123/messages",
+        FakeResponse({"records": [{"id": 100, "parent_message_id": 999}]}),
+    )
+    replies = CircleClient(_settings(), session=session).fetch_chat_replies(
+        chat_room_uuid="abc-123", parent_message_id=999
+    )
+    assert len(replies) == 1
+    assert replies[0]["parent_message_id"] == 999
+    assert "parent_message_id=999" in session.calls[0]["url"]
 
 
 def test_error_includes_status_and_body() -> None:

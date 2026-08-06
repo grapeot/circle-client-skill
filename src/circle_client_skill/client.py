@@ -397,15 +397,52 @@ class CircleClient:
         self,
         chat_room_uuid: str,
         *,
-        page: int = 1,
-        per_page: int = 20,
+        previous_per_page: int = 0,
+        next_per_page: int = 50,
+        before_creation_uuid: str | None = None,
     ) -> dict[str, Any]:
-        """List messages in a chat room."""
+        """List messages in a chat room.
+
+        Circle chat uses cursor-based pagination via before_creation_uuid,
+        not page numbers. Set previous_per_page to fetch older messages
+        and next_per_page to fetch newer ones.
+        """
+        params: dict[str, str] = {
+            "previous_per_page": str(previous_per_page),
+            "next_per_page": str(next_per_page),
+        }
+        if before_creation_uuid:
+            params["before_creation_uuid"] = before_creation_uuid
         return self._request(
             "GET",
             f"{self.settings.base_url}/internal_api/chat_rooms/{chat_room_uuid}/messages",
-            params={"per_page": str(per_page), "page": str(page)},
+            params=params,
         )
+
+    def fetch_chat_replies(
+        self,
+        chat_room_uuid: str,
+        parent_message_id: int | str,
+        *,
+        per_page: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Fetch thread replies for a specific message.
+
+        Uses the same messages endpoint with parent_message_id as a query param.
+        Returns a list of reply message records.
+        """
+        result = self._request(
+            "GET",
+            f"{self.settings.base_url}/internal_api/chat_rooms/{chat_room_uuid}/messages",
+            params={
+                "previous_per_page": str(per_page),
+                "next_per_page": "0",
+                "parent_message_id": str(parent_message_id),
+            },
+        )
+        if isinstance(result, dict):
+            return result.get("records", [])
+        return result if isinstance(result, list) else []
 
     def send_chat_message(
         self,

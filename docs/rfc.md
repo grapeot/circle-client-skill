@@ -57,6 +57,7 @@ V1 的帖子、聊天和图片能力来自浏览器 ajax 逆向，不是官方�
 | 图片上传第二步 | PUT | `<direct_upload.url>` (S3) | raw file bytes | direct_upload headers |
 | 列聊天消息 | GET | `/internal_api/chat_rooms/{uuid}/messages` | — | cookie |
 | 发聊天消息 | POST | `/internal_api/chat_rooms/{uuid}/messages` | `{"chat_room_message":{chat_room_participant_id, rich_text_body, [parent_message_id], unfurl_urls}}` | cookie+CSRF |
+| 读取 thread 回复 | GET | `/internal_api/chat_rooms/{uuid}/messages?parent_message_id={id}` | — | cookie |
 
 ### 鉴权机制
 
@@ -146,5 +147,15 @@ circle-client list-chat-messages --room-uuid <uuid> [--page N] [--per-page N]
 
 ### V1 已知限制
 
-- `chat-send` 的 `parent_message_id` 参数当前标记为待验证。实测发送后返回的 `chat_thread_id` 等于 parent message id，但消息是否真正进入 thread 视图还是变成独立消息，需要浏览器端验证。当前实现照常提交 `parent_message_id`，不阻塞 V1 发布。
 - `create-post` 和 `update-post` 的 `user_id` 参数需要调用者提供。这是 Circle internal API 的要求——前端从 localStorage 读取当前 user id 并放进 body。未来可以从 `.env` 或 auth-status 自动推导。
+
+### Chat 分页
+
+Circle chat 不用 page+per_page 分页，而是用 cursor-based pagination：
+- `previous_per_page`：向过去方向拉取的消息数
+- `next_per_page`：向未来方向拉取的消息数
+- `before_creation_uuid`：游标，值为上一批最后一条消息的 `creation_uuid`
+
+Thread 回复用同一个 messages endpoint，通过 `parent_message_id` query param 过滤。发 thread reply 时在 POST body 的 `chat_room_message.parent_message_id` 字段带上 parent 消息的数字 ID。
+
+Thread reply 的 POST 返回 `{creation_uuid, sent_at, parent_message_id}`——注意没有 `id` 字段，只有 `creation_uuid`。如果需要获取新消息的 ID，需要通过 `fetch_chat_replies` 再次查询。
