@@ -21,6 +21,9 @@ dev = [
   "pytest>=8.3,<9",
   "ruff>=0.9,<1",
 ]
+browser = [
+  "playwright>=1.49",
+]
 
 [project.scripts]
 circle-client = "circle_client_skill.cli:main"

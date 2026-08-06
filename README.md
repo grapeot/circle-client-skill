@@ -1,97 +1,58 @@
 # Circle Client Skill
 
-Circle Client Skill 是一个非官方、local-first 的 Circle 成员客户端。它从浏览器中已经成功的通知请求导入临时登录凭证，分页抓取个人未读通知，并将结果渲染为便于阅读和后续 AI 筛选的 Markdown、CSV 或响应式 HTML。
-
-V1 新增了帖子、空间、评论、聊天和图片上传能力，全部走 member session（cookie + CSRF），不需要 Admin API token。所有写操作默认 dry-run，live 执行需 `--execute --confirm <ACTION>`。
+Circle Client Skill 是一个非官方、local-first 的 Circle 成员客户端。它通过普通成员的浏览器 session（cookie + CSRF）操作 Circle 社区——不需要 Admin API token。支持通知导出、帖子/评论/聊天/图片的完整 CRUD，所有写操作默认 dry-run。
 
 ## 安装
 
 ```bash
 uv venv .venv
 source .venv/bin/activate
-uv pip install -e '.[dev]'
+uv pip install -e '.[dev,browser]'
+python -m playwright install chromium
 ```
+
+`browser` extra 安装 Playwright，用于 `configure-browser` 命令。如果你只用 `configure`（从 Copy as cURL 导入），可以省略 `browser` 和 chromium 安装。
 
 ## 配置
 
-在浏览器 DevTools 的 Network 面板中打开 Circle 通知页，找到返回通知 JSON 的请求，右击该请求并选择 **Copy as cURL**。然后让 CLI 直接读取剪贴板：
+有两种方式导入凭证，效果相同：
+
+### 方式一：浏览器自动导入（推荐）
+
+```bash
+circle-client configure-browser --url https://your-community.circle.so
+```
+
+会打开一个可见的浏览器窗口。登录你的 Circle 社区，登录成功后脚本自动提取 cookie 和 CSRF token，保存到 `.env`。
+
+### 方式二：从浏览器 Copy as cURL 导入
+
+1. 在浏览器 DevTools 的 Network 面板中打开 Circle 通知页
+2. 找到返回通知 JSON 的请求，右键选择 **Copy as cURL**
+3. 让 CLI 从剪贴板读取：
 
 ```bash
 circle-client configure --from-clipboard
 ```
 
-也可以通过标准输入导入：
-
-```bash
-circle-client configure --stdin
-```
+也可以通过标准输入：`circle-client configure --stdin`
 
 完整 cURL 含有可复用的登录凭证。不要把它粘贴到聊天、issue、日志或 tracked 文件中。CLI 只保存后续请求需要的字段到本地 `.env`，不会保存原始 cURL。
 
-## 使用
-
-抓取 Inbox 中全部通知，默认每页请求 100 条：
-
-```bash
-circle-client fetch --group inbox --per-page 100 --output data/notifications.json
-circle-client count
-```
-
-清除 Circle 的 new-notification badge count：
-
-```bash
-# 默认只输出 preflight，不发送 POST
-circle-client reset-count
-
-# 只有明确决定清零时才执行
-circle-client reset-count --execute --confirm RESET-COUNT
-```
-
-Circle 内部 endpoint 名为 `mark_all_as_read`，但实测产品语义是重置 badge/new count，不会在本工具中表述成“全部通知已读”。
-
-`fetch` 默认在连续遇到 100 条已读记录后停止，把它视为实际 unread frontier。若需要审计完整历史，可传 `--stop-after-consecutive-read 0`。
-
-渲染为 Markdown 或 CSV：
-
-```bash
-circle-client render --input data/notifications.json --format md --output data/notifications.md
-circle-client render --input data/notifications.json --format csv --output data/notifications.csv
-circle-client render --input data/notifications.json --format html --output data/index.html
-circle-client serve --directory data --host 0.0.0.0 --port 8765
-```
-
-检查本地凭证状态：
+### 检查凭证状态
 
 ```bash
 circle-client auth-status
 ```
 
-## 帖子、空间、评论、聊天和图片（V1）
-
-V1 通过逆向 Circle 前端 internal API 实现了完整的社区操作能力，全部用普通成员 session 鉴权（cookie + CSRF），不需要 Admin API token：
-
-```bash
-# 只读
-circle-client spaces
-circle-client list-posts -s <space_id> [--page N] [--per-page N]
-circle-client list-chat-messages --room-uuid <uuid>
-circle-client list-chat-replies --room-uuid <uuid> --parent-message-id <id>
-
-# 写操作（默认 dry-run，live 执行需 --execute --confirm <ACTION>）
-circle-client create-post -s <space_id> --name "Title" --user-id <id> --execute --confirm CREATE-POST
-circle-client update-post -s <space_id> --post-id <id> --slug <slug> --name "New" --user-id <id> --execute --confirm UPDATE-POST
-circle-client delete-post -s <space_id> --slug <slug> --execute --confirm DELETE-POST
-circle-client reply-post --post-id <id> --text "Reply" --execute --confirm REPLY-POST
-circle-client upload-image -f <path> --execute --confirm UPLOAD-IMAGE
-circle-client chat-send --room-uuid <uuid> --participant-id <id> --text "Hello" --execute --confirm CHAT-SEND
-```
-
-所有写操作默认只输出 preflight（操作类型、目标 ID、关键参数），不碰网络。Live 执行需同时提供 `--execute --confirm <ACTION>`，且用户当次明确授权。错误信息透传 HTTP status code 和 response body 片段，不封装成笼统的错误。
+凭证过期后重新运行 `configure-browser` 或 `configure` 即可。
 
 ## Agent Skill
 
-Canonical skill 位于 `skills/circle_client.md`。可以把本仓库 URL 交给 Codex、Claude Code、Cursor、OpenCode 或其他 coding agent，让它先读取目标 workspace 的 `AGENTS.md` / `CLAUDE.md` 和路由文件，再把 canonical skill 加入当地的 skill discovery chain。
+完整 CLI 命令文档位于 `skills/circle_client.md`。AI agent（Codex、Claude Code、Cursor、OpenCode 等）读取该 skill 文件即可了解所有可用命令和参数。
+
+可以把本仓库 URL 交给 coding agent，让它先读取 `AGENTS.md` 和 skill 文件，再把 skill 加入当地的 skill discovery chain。
 
 ## 稳定性说明
 
-本工具调用 Circle 网页使用的 internal API，而不是 Circle 官方公开 API。Circle 可能调整 endpoint、字段或认证方式；浏览器 JWT、cookies 和 Cloudflare clearance 也会过期。认证失效时，重新从正常工作的浏览器请求执行 Copy as cURL 并再次运行 `configure`。
+本工具调用 Circle 网页使用的 internal API，而不是 Circle 官方公开 API。Circle 可能调整 endpoint、字段或认证方式；浏览器 cookies 和 Cloudflare clearance 也会过期。认证失效时，重新运行 `configure-browser` 即可。
