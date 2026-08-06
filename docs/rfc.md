@@ -120,15 +120,29 @@ circle-client serve --directory data --host 0.0.0.0 --port 8765
 
 # V1 — spaces, posts, comments, images, chat (all read ops are live, all mutations are dry-run-first)
 circle-client spaces
+circle-client get-space -s <space_id>
 circle-client list-posts -s <space_id> [--page N] [--per-page N]
 circle-client create-post -s <space_id> --name "Title" --user-id <id> --execute --confirm CREATE-POST
 circle-client update-post -s <space_id> --post-id <id> --slug <slug> --name "New Title" --user-id <id> --execute --confirm UPDATE-POST
 circle-client delete-post -s <space_id> --slug <slug> --execute --confirm DELETE-POST
 circle-client reply-post --post-id <id> --text "Reply text" --execute --confirm REPLY-POST
 circle-client upload-image -f <path> --execute --confirm UPLOAD-IMAGE
-circle-client chat-send --room-uuid <uuid> --participant-id <id> --text "Hello" [--parent-message-id <id>] --execute --confirm CHAT-SEND
-circle-client list-chat-messages --room-uuid <uuid> [--page N] [--per-page N]
+circle-client chat-send (--room-uuid <uuid> | --space-id <id>) --participant-id <id> --text "Hello" [--parent-message-id <id>] --execute --confirm CHAT-SEND
+circle-client list-chat-messages (--room-uuid <uuid> | --space-id <id>) [--cursor <message_id>] [--direction previous|next]
+circle-client list-chat-replies (--room-uuid <uuid> | --space-id <id>) --parent-message-id <id> [--cursor <message_id>] [--direction previous|next]
+circle-client unreplied (--room-uuid <uuid> | --space-id <id>) --member-id <id> [--limit N]
+
+# Global flag — applies to all subcommands
+circle-client <command> [...] --json   # output complete raw JSON instead of compact text
 ```
+
+### 输出格式原则
+
+默认输出是紧凑纯文本（对齐表格或结构化卡片），面向 AI agent 和人类终端用户同时优化：字段稳定可 grep，行式或表格式可正则解析，不输出 `success`/`count`/`page` 等信封元字段（除非它本身是业务内容，如 `count` 的数字）。
+
+`--json` 是全局 flag，挂在主 parser 上、所有子命令继承。它输出**完整原始 API 响应**，不做字段裁剪，供下游 pipeline 无损消费。默认模式和 JSON 模式职责清晰分离：前者精简，后者完整。
+
+具体格式由 `formatters.py` 承载，每种命令一个格式器。列表类输出为对齐表格（非 Markdown，避免 `|` 管道符噪声），单条详情为 key-value 卡片，mutation dry-run 为结构化 preflight 块，mutation live 为一行确认，错误为人类可读单行 + status/request_id。`get-post` 默认从 tiptap body 提取纯文本，`--raw-body` 保留原始 tiptap JSON 块。`render` 和 `serve` 不受影响——它们是"保存到文件供后续用"的工具，不是即时输出。
 
 ## Mutation Boundary
 
@@ -154,8 +168,18 @@ circle-client list-chat-messages --room-uuid <uuid> [--page N] [--per-page N]
 Circle chat 不用 page+per_page 分页，而是用 cursor-based pagination：
 - `previous_per_page`：向过去方向拉取的消息数
 - `next_per_page`：向未来方向拉取的消息数
-- `before_creation_uuid`：游标，值为上一批最后一条消息的 `creation_uuid`
+- `id`：数字 message ID 游标。向历史翻页使用响应的 `first_id`，向未来翻页使用 `last_id`
+
+历史方向请求使用 `id=<first_id>&previous_per_page=50&next_per_page=0`；未来方向请求使用 `id=<last_id>&previous_per_page=0&next_per_page=50`。服务端会在相邻页重复 cursor anchor，完整扫描必须按数字 message ID 去重，并在结束时用 `total_count` 校验唯一记录数。`before_creation_uuid` 已实测为无效参数，不属于当前 contract。
 
 Thread 回复用同一个 messages endpoint，通过 `parent_message_id` query param 过滤。发 thread reply 时在 POST body 的 `chat_room_message.parent_message_id` 字段带上 parent 消息的数字 ID。
 
 Thread reply 的 POST 返回 `{creation_uuid, sent_at, parent_message_id}`——注意没有 `id` 字段，只有 `creation_uuid`。如果需要获取新消息的 ID，需要通过 `fetch_chat_replies` 再次查询。
+
+### chat room UUID 解析
+
+`/internal_api/spaces` 列表端点只返回数字 `chat_room_id`，不含 UUID。`/internal_api/spaces/{id}` 单个 space detail 返回 `chat_room_uuid`。所有 chat 命令支持 `--space-id` 便捷参数：提供时自动调 `get_space` 解析 UUID，免去手动查 UUID。`--room-uuid` 和 `--space-id` 二选一；已知 UUID 时直接用 `--room-uuid` 避免额外 API 调用。
+
+### unreplied 判定
+
+`thread_participants_preview` 字段在 root 消息里直接含完整参与者列表，每个 participant 有 `community_member_id` 和 `name`。`community_member_id` 跨所有 room 一致（每用户一个），`chat_room_participant_id` 则每 room 不同。判定目标成员是否参与某条 root 消息的 thread：检查 `thread_participants_preview` 里有没有目标 `community_member_id`。即便 `replies_count > 0`（别人回了但目标成员没回），也算 unreplied。`--member-id` 为必填参数，不设默认值（public-ready repo 不含真实用户身份）。`scan_chat_roots` 辅助方法处理完整分页遍历：cursor anchor overlap 去重、cursor 前进检查、`max_pages` 上限和 `total_count` 一致性验证。

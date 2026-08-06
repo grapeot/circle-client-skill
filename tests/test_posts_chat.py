@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from circle_client_skill.client import CircleClient, CircleClientError
 from circle_client_skill.config import CircleSettings
 
@@ -210,7 +212,7 @@ def test_list_chat_messages() -> None:
         FakeResponse({"records": [{"id": 1, "body": {}}], "total_count": 1}),
     )
     result = CircleClient(_settings(), session=session).list_chat_messages(
-        chat_room_uuid="abc-123", next_per_page=5
+        chat_room_uuid="abc-123", previous_per_page=0, next_per_page=5
     )
     assert result["total_count"] == 1
     assert "next_per_page=5" in session.calls[0]["url"]
@@ -224,9 +226,10 @@ def test_list_chat_messages_with_cursor() -> None:
         FakeResponse({"records": []}),
     )
     CircleClient(_settings(), session=session).list_chat_messages(
-        chat_room_uuid="abc-123", previous_per_page=50, before_creation_uuid="cursor-abc"
+        chat_room_uuid="abc-123", previous_per_page=50, cursor=12345
     )
-    assert "before_creation_uuid=cursor-abc" in session.calls[0]["url"]
+    assert "id=12345" in session.calls[0]["url"]
+    assert "before_creation_uuid" not in session.calls[0]["url"]
     assert "previous_per_page=50" in session.calls[0]["url"]
 
 
@@ -236,24 +239,91 @@ def test_fetch_chat_replies() -> None:
         "GET https://community.example.com/internal_api/chat_rooms/abc-123/messages",
         FakeResponse({"records": [{"id": 100, "parent_message_id": 999}]}),
     )
-    replies = CircleClient(_settings(), session=session).fetch_chat_replies(
-        chat_room_uuid="abc-123", parent_message_id=999
+    result = CircleClient(_settings(), session=session).fetch_chat_replies(
+        chat_room_uuid="abc-123", parent_message_id=999, cursor=100
     )
+    replies = result["records"]
     assert len(replies) == 1
     assert replies[0]["parent_message_id"] == 999
     assert "parent_message_id=999" in session.calls[0]["url"]
+    assert "id=100" in session.calls[0]["url"]
+    assert "previous_per_page=0" in session.calls[0]["url"]
+    assert "next_per_page=50" in session.calls[0]["url"]
+
+
+def test_scan_chat_roots_deduplicates_anchor_and_validates_total() -> None:
+    class PagingClient(CircleClient):
+        def __init__(self) -> None:
+            pass
+
+        def list_chat_messages(
+            self,
+            chat_room_uuid: str,
+            *,
+            previous_per_page: int = 50,
+            next_per_page: int = 0,
+            cursor: int | None = None,
+        ) -> dict[str, Any]:
+            assert chat_room_uuid == "abc-123"
+            assert previous_per_page == 50
+            assert next_per_page == 0
+            if cursor is None:
+                return {
+                    "records": [
+                        {"id": 2, "created_at": "2026-01-02T00:00:00Z", "parent_message_id": None},
+                        {"id": 3, "created_at": "2026-01-03T00:00:00Z", "parent_message_id": None},
+                    ],
+                    "first_id": 2,
+                    "has_previous_page": True,
+                    "total_count": 3,
+                }
+            assert cursor == 2
+            return {
+                "records": [
+                    {"id": 1, "created_at": "2026-01-01T00:00:00Z", "parent_message_id": None},
+                    {"id": 2, "created_at": "2026-01-02T00:00:00Z", "parent_message_id": None},
+                ],
+                "first_id": 1,
+                "has_previous_page": False,
+                "total_count": 3,
+            }
+
+    roots = PagingClient().scan_chat_roots("abc-123")
+    assert [root["id"] for root in roots] == [1, 2, 3]
+
+
+def test_scan_chat_roots_rejects_total_count_mismatch() -> None:
+    class IncompleteClient(CircleClient):
+        def __init__(self) -> None:
+            pass
+
+        def list_chat_messages(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {
+                "records": [{"id": 1, "parent_message_id": None}],
+                "has_previous_page": False,
+                "total_count": 2,
+            }
+
+    with pytest.raises(CircleClientError, match="total_count mismatch"):
+        IncompleteClient().scan_chat_roots("abc-123")
 
 
 def test_error_includes_status_and_body() -> None:
     session = FakeSession()
     session.set_response(
         "GET https://community.example.com/internal_api/spaces/999/posts",
-        FakeResponse({"error": "Not found"}, status_code=404, text='{"error":"Not found"}'),
+        FakeResponse(
+            {"error": "Not found"},
+            status_code=404,
+            text='{"error":"Not found","cookie":"private-value","authorization":"Bearer fake-secret"}',
+        ),
     )
     try:
         CircleClient(_settings(), session=session).list_posts(space_id=999)
     except CircleClientError as exc:
         assert exc.status_code == 404
         assert "404" in str(exc)
+        assert "private-value" not in str(exc)
+        assert "fake-secret" not in str(exc)
     else:
         raise AssertionError("Expected CircleClientError")

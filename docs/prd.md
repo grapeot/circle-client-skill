@@ -27,6 +27,7 @@ Circle 普通成员可能积累大量未读通知，但 Circle Admin API 和官�
 - 通过 dry-run-first、精确确认的命令重置 new notification badge count。
 - 把通知按 lesson comments、普通 comments、likes、new members 和 other 分类，生成 mobile-friendly 静态 HTML。
 - CLI 输出稳定的机器可读摘要，不打印通知正文或凭证。
+- 默认输出紧凑纯文本（表格/卡片），`--json` flag 输出完整原始 API 响应供下游 pipeline 消费。
 
 ## V1 目标：帖子、聊天与图片
 
@@ -39,6 +40,8 @@ Circle 普通成员可能积累大量未读通知，但 Circle Admin API 和官�
 - 回复帖子：POST comment 到 `/internal_api/posts/{id}/comments`，dry-run-first。
 - 上传图片：两步直传（create blob + PUT to S3），dry-run-first。
 - 列出聊天室消息（分页）。
+- 获取单个 space 的完整 metadata（含 chat room UUID），供 chat 操作使用。
+- 查找目标成员未参与的 chat root 消息（unreplied），用于社区运营回复追踪。
 - 发送聊天消息：POST 到 `/internal_api/chat_rooms/{uuid}/messages`，dry-run-first。
 - 聊天 thread 回复：在 send message 请求中带 `parent_message_id`，已验证消息进入 thread 视图。
 - 读取 thread 回复：GET `/internal_api/chat_rooms/{uuid}/messages?parent_message_id={id}` 返回 thread 内的全部回复。
@@ -67,6 +70,7 @@ Mark-all-read 必须来自新的真实浏览器请求。不能因为 reset-count
 - Markdown 与 CSV 输出保留通知 ID、状态、时间、类型、actor、摘要和链接。
 - Live GET 能用用户当前浏览器凭证抓取 inbox，且 `per_page=100` 的实际行为有记录。
 - 默认测试不访问 Circle，也不需要真实凭证。
+- CLI 输出格式器（formatters.py）有独立离线单测，覆盖空列表、长字段截断和 tiptap 纯文本提取。
 - 帖子/聊天/图片的 offline test 覆盖所有 endpoint 的 method、URL、payload schema 和错误处理。
 - Live mutation 的 dry-run 不加载 `.env`、不碰网络；live 执行前必须有 dry-run preflight。
 - Mutation 的错误信息包含 HTTP status code 和 response body 片段。

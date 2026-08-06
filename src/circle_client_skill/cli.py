@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -20,7 +21,50 @@ from .config import (
     parse_curl,
     save_settings,
 )
+from .formatters import (
+    format_auth_status,
+    format_chat_messages_table,
+    format_count,
+    format_fetch_summary,
+    format_mutation_dryrun,
+    format_mutation_result,
+    format_post_card,
+    format_posts_table,
+    format_space_card,
+    format_spaces_table,
+    format_unreplied_table,
+)
 from .render import render_csv, render_html, render_markdown
+
+
+def _print_json(value: object) -> None:
+    print(json.dumps(value, ensure_ascii=False, indent=2))
+
+
+def _resolve_room_uuid(client: CircleClient, args: argparse.Namespace) -> str:
+    if args.room_uuid:
+        return args.room_uuid
+    space = client.get_space(args.space_id)
+    room_uuid = space.get("chat_room_uuid")
+    if not isinstance(room_uuid, str) or not room_uuid:
+        raise ValueError(f"Space {args.space_id} has no chat_room_uuid")
+    return room_uuid
+
+
+def _directional_page_sizes(args: argparse.Namespace) -> tuple[int, int]:
+    if args.direction == "next":
+        return 0, args.next_per_page or args.previous_per_page
+    return args.previous_per_page or args.next_per_page, 0
+
+
+def _safe_error_message(message: str) -> str:
+    message = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer ***", message)
+    return re.sub(
+        r"(?i)([\"']?(?:authorization|cookie|x-csrf-token|csrf_token)[\"']?\s*[:=]\s*)"
+        r"([\"']?)[^\"'\s,}\]]+",
+        r"\1\2***",
+        message,
+    )
 
 
 def _read_curl(args: argparse.Namespace) -> str:
@@ -65,21 +109,16 @@ def cmd_auth_status(args: argparse.Namespace) -> None:
     settings = load_settings(Path(args.env_file))
     expiration = jwt_expiration(settings.authorization) if settings.authorization else None
     now = datetime.now(UTC)
-    print(
-        json.dumps(
-            {
-                "configured": True,
-                "host": urlsplit(settings.notifications_url).netloc,
-                "cookie_present": bool(settings.cookie),
-                "csrf_present": bool(settings.csrf_token),
-                "jwt_present": bool(settings.authorization),
-                "jwt_expires_at": expiration.isoformat() if expiration else None,
-                "jwt_expired": expiration <= now if expiration else None,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-    )
+    status = {
+        "configured": True,
+        "host": urlsplit(settings.notifications_url).netloc,
+        "cookie_present": bool(settings.cookie),
+        "csrf_present": bool(settings.csrf_token),
+        "jwt_present": bool(settings.authorization),
+        "jwt_expires_at": expiration.isoformat() if expiration else None,
+        "jwt_expired": expiration <= now if expiration else None,
+    }
+    print(json.dumps(status, ensure_ascii=False, indent=2) if args.json else format_auth_status(status))
 
 
 def cmd_configure_browser(args: argparse.Namespace) -> None:
@@ -131,7 +170,7 @@ def cmd_configure_browser(args: argparse.Namespace) -> None:
             cookies = await context.cookies()
             # Match by root domain: strip leading "www." or "." for comparison
             target_domain = urlsplit(args.url).netloc
-            # Also match parent domain (e.g., www.superlinear.academy → superlinear.academy)
+            # Also match parent domain (e.g., www.community.example.com → community.example.com)
             root_domain = target_domain.removeprefix("www.")
             relevant = [
                 c for c in cookies
@@ -217,25 +256,26 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(
-        json.dumps(
-            {
-                "success": True,
-                "output": str(output.resolve()),
-                "count": document["count"],
-                "pages_fetched": document["source"]["pages_fetched"],
-                "per_page": document["source"]["per_page"],
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-    )
+    summary = {
+        "success": True,
+        "output": str(output.resolve()),
+        "count": document["count"],
+        "pages_fetched": document["source"]["pages_fetched"],
+        "per_page": document["source"]["per_page"],
+    }
+    if args.json:
+        _print_json(summary)
+    else:
+        print(format_fetch_summary({**summary, "host": document["source"]["host"], "output": args.output}))
 
 
 def cmd_count(args: argparse.Namespace) -> None:
     settings = load_settings(Path(args.env_file))
     result = CircleClient(settings, timeout=args.timeout).get_notification_count()
-    print(json.dumps({"success": True, "count": result["count"]}, ensure_ascii=False, indent=2))
+    if args.json:
+        _print_json({"success": True, "count": result["count"]})
+    else:
+        print(format_count(result["count"]))
 
 
 def cmd_reset_count(args: argparse.Namespace) -> None:
@@ -245,7 +285,12 @@ def cmd_reset_count(args: argparse.Namespace) -> None:
     result = CircleClient(settings, timeout=args.timeout).reset_notification_count(
         execute=args.execute
     )
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    if args.json:
+        _print_json(result)
+    elif result.get("dry_run"):
+        print(format_mutation_dryrun(result))
+    else:
+        print(format_mutation_result(result, "reset-count"))
 
 
 def cmd_render(args: argparse.Namespace) -> None:
@@ -300,7 +345,16 @@ def cmd_spaces(args: argparse.Namespace) -> None:
     settings = load_settings(Path(args.env_file))
     result = CircleClient(settings, timeout=args.timeout).list_spaces()
     spaces = result.get("records", result) if isinstance(result, dict) else result
-    print(json.dumps({"success": True, "count": len(spaces), "spaces": spaces}, ensure_ascii=False, indent=2))
+    if args.json:
+        _print_json({"success": True, "count": len(spaces), "spaces": spaces})
+    else:
+        print(format_spaces_table(spaces))
+
+
+def cmd_get_space(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    space = CircleClient(settings, timeout=args.timeout).get_space(args.space_id)
+    print(json.dumps(space, ensure_ascii=False, indent=2) if args.json else format_space_card(space))
 
 
 def cmd_list_posts(args: argparse.Namespace) -> None:
@@ -315,14 +369,17 @@ def cmd_list_posts(args: argparse.Namespace) -> None:
         posts = [{"id": p.get("id"), "name": p.get("name"), "slug": p.get("slug"),
                     "published_at": p.get("published_at"), "community_member_id": p.get("community_member_id")}
                    for p in records]
-    print(json.dumps({
-        "success": True,
-        "count": result.get("count", len(records)),
-        "page": result.get("page", args.page),
-        "per_page": result.get("per_page", args.per_page),
-        "has_next_page": result.get("has_next_page"),
-        "posts": posts,
-    }, ensure_ascii=False, indent=2))
+    if args.json:
+        _print_json({
+            "success": True,
+            "count": result.get("count", len(records)),
+            "page": result.get("page", args.page),
+            "per_page": result.get("per_page", args.per_page),
+            "has_next_page": result.get("has_next_page"),
+            "posts": posts,
+        })
+    else:
+        print(format_posts_table(records, args.full))
 
 
 def cmd_get_post(args: argparse.Namespace) -> None:
@@ -331,7 +388,7 @@ def cmd_get_post(args: argparse.Namespace) -> None:
         space_id=args.space_id, slug=args.slug
     )
     post = result if isinstance(result, dict) else {}
-    if args.extract_text:
+    if args.json and args.extract_text:
         tiptap = post.get("tiptap_body", {})
         tiptap_body = tiptap.get("body", tiptap)
         def _extract_text(node: object) -> str:
@@ -355,7 +412,10 @@ def cmd_get_post(args: argparse.Namespace) -> None:
             "published_at": post.get("published_at"),
             "body_text": _extract_text(tiptap_body),
         }
-    print(json.dumps({"success": True, "post": post}, ensure_ascii=False, indent=2))
+    if args.json:
+        _print_json({"success": True, "post": post})
+    else:
+        print(format_post_card(post))
 
 
 def cmd_create_post(args: argparse.Namespace) -> None:
@@ -374,12 +434,16 @@ def cmd_create_post(args: argparse.Namespace) -> None:
             "csrf_present": bool(settings.csrf_token),
             "cookie_present": bool(settings.cookie),
         }
-        print(json.dumps(preflight, ensure_ascii=False, indent=2))
+        print(json.dumps(preflight, ensure_ascii=False, indent=2) if args.json else format_mutation_dryrun(preflight))
         return
     result = client.create_post(
         space_id=args.space_id, name=args.name, user_id=args.user_id, status=args.status
     )
-    print(json.dumps({"success": True, "dry_run": False, "post": result}, ensure_ascii=False, indent=2))
+    payload = {"success": True, "dry_run": False, "post": result}
+    if args.json:
+        _print_json(payload)
+    else:
+        print(format_mutation_result({"post": {"space_id": args.space_id, **result}}, "create-post"))
 
 
 def cmd_update_post(args: argparse.Namespace) -> None:
@@ -399,12 +463,16 @@ def cmd_update_post(args: argparse.Namespace) -> None:
             "user_id": args.user_id,
             "csrf_present": bool(settings.csrf_token),
         }
-        print(json.dumps(preflight, ensure_ascii=False, indent=2))
+        print(json.dumps(preflight, ensure_ascii=False, indent=2) if args.json else format_mutation_dryrun(preflight))
         return
     result = client.update_post(
         space_id=args.space_id, slug=args.slug, post_id=args.post_id, name=args.name, user_id=args.user_id
     )
-    print(json.dumps({"success": True, "dry_run": False, "post": result}, ensure_ascii=False, indent=2))
+    payload = {"success": True, "dry_run": False, "post": result}
+    if args.json:
+        _print_json(payload)
+    else:
+        print(format_mutation_result({"post": {"space_id": args.space_id, **result}}, "update-post"))
 
 
 def cmd_delete_post(args: argparse.Namespace) -> None:
@@ -421,10 +489,11 @@ def cmd_delete_post(args: argparse.Namespace) -> None:
             "slug": args.slug,
             "csrf_present": bool(settings.csrf_token),
         }
-        print(json.dumps(preflight, ensure_ascii=False, indent=2))
+        print(json.dumps(preflight, ensure_ascii=False, indent=2) if args.json else format_mutation_dryrun(preflight))
         return
     client.delete_post(space_id=args.space_id, slug=args.slug)
-    print(json.dumps({"success": True, "dry_run": False, "deleted": True, "slug": args.slug}, ensure_ascii=False, indent=2))
+    payload = {"success": True, "dry_run": False, "deleted": True, "slug": args.slug}
+    print(json.dumps(payload, ensure_ascii=False, indent=2) if args.json else format_mutation_result(payload, "delete-post"))
 
 
 def cmd_reply_post(args: argparse.Namespace) -> None:
@@ -441,10 +510,14 @@ def cmd_reply_post(args: argparse.Namespace) -> None:
             "text": args.text[:100],
             "csrf_present": bool(settings.csrf_token),
         }
-        print(json.dumps(preflight, ensure_ascii=False, indent=2))
+        print(json.dumps(preflight, ensure_ascii=False, indent=2) if args.json else format_mutation_dryrun(preflight))
         return
     result = client.create_comment(post_id=args.post_id, text=args.text)
-    print(json.dumps({"success": True, "dry_run": False, "comment": result}, ensure_ascii=False, indent=2))
+    payload = {"success": True, "dry_run": False, "comment": result}
+    if args.json:
+        _print_json(payload)
+    else:
+        print(format_mutation_result({"comment": result, "post_id": args.post_id}, "reply-post"))
 
 
 def cmd_upload_image(args: argparse.Namespace) -> None:
@@ -460,16 +533,17 @@ def cmd_upload_image(args: argparse.Namespace) -> None:
             "file": args.file,
             "csrf_present": bool(settings.csrf_token),
         }
-        print(json.dumps(preflight, ensure_ascii=False, indent=2))
+        print(json.dumps(preflight, ensure_ascii=False, indent=2) if args.json else format_mutation_dryrun(preflight))
         return
     result = client.upload_image(args.file)
     direct_upload = result.get("direct_upload", {})
-    print(json.dumps({
+    payload = {
         "success": True,
         "dry_run": False,
         "signed_id": result.get("signed_id"),
         "url": direct_upload.get("url"),
-    }, ensure_ascii=False, indent=2))
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2) if args.json else format_mutation_result(payload, "upload-image"))
 
 
 def cmd_chat_send(args: argparse.Namespace) -> None:
@@ -477,63 +551,91 @@ def cmd_chat_send(args: argparse.Namespace) -> None:
         raise ValueError("Live execution requires --confirm CHAT-SEND")
     settings = load_settings(Path(args.env_file))
     client = CircleClient(settings, timeout=args.timeout)
+    room_uuid = _resolve_room_uuid(client, args)
     if not args.execute:
         preflight = {
             "success": True,
             "dry_run": True,
             "operation": "chat_send",
-            "chat_room_uuid": args.room_uuid,
+            "chat_room_uuid": room_uuid,
             "participant_id": args.participant_id,
             "text": args.text[:100],
             "parent_message_id": args.parent_message_id,
             "csrf_present": bool(settings.csrf_token),
         }
-        print(json.dumps(preflight, ensure_ascii=False, indent=2))
+        print(json.dumps(preflight, ensure_ascii=False, indent=2) if args.json else format_mutation_dryrun(preflight))
         return
     result = client.send_chat_message(
-        chat_room_uuid=args.room_uuid,
+        chat_room_uuid=room_uuid,
         chat_room_participant_id=args.participant_id,
         text=args.text,
         parent_message_id=args.parent_message_id,
     )
-    print(json.dumps({"success": True, "dry_run": False, "message": result}, ensure_ascii=False, indent=2))
+    payload = {"success": True, "dry_run": False, "message": result}
+    if args.json:
+        _print_json(payload)
+    else:
+        print(format_mutation_result({"message": result, "chat_room_uuid": room_uuid}, "chat-send"))
 
 
 def cmd_list_chat_messages(args: argparse.Namespace) -> None:
     settings = load_settings(Path(args.env_file))
-    result = CircleClient(settings, timeout=args.timeout).list_chat_messages(
-        chat_room_uuid=args.room_uuid,
-        previous_per_page=args.previous_per_page,
-        next_per_page=args.next_per_page,
-        before_creation_uuid=args.before_creation_uuid,
+    client = CircleClient(settings, timeout=args.timeout)
+    room_uuid = _resolve_room_uuid(client, args)
+    previous_per_page, next_per_page = _directional_page_sizes(args)
+    result = client.list_chat_messages(
+        chat_room_uuid=room_uuid,
+        previous_per_page=previous_per_page,
+        next_per_page=next_per_page,
+        cursor=args.cursor,
     )
     records = result.get("records", [])
-    print(json.dumps({
-        "success": True,
-        "total_count": result.get("total_count", len(records)),
-        "messages": [{"id": m.get("id"), "body": m.get("body"), "created_at": m.get("created_at"),
-                       "chat_room_participant_id": m.get("chat_room_participant_id"),
-                       "parent_message_id": m.get("parent_message_id"),
-                       "chat_thread_id": m.get("chat_thread_id"),
-                       "replies_count": m.get("replies_count")}
-                      for m in records],
-    }, ensure_ascii=False, indent=2))
+    print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else format_chat_messages_table(records, result))
 
 
 def cmd_list_chat_replies(args: argparse.Namespace) -> None:
     settings = load_settings(Path(args.env_file))
-    replies = CircleClient(settings, timeout=args.timeout).fetch_chat_replies(
-        chat_room_uuid=args.room_uuid,
+    client = CircleClient(settings, timeout=args.timeout)
+    room_uuid = _resolve_room_uuid(client, args)
+    previous_per_page, next_per_page = _directional_page_sizes(args)
+    result = client.fetch_chat_replies(
+        chat_room_uuid=room_uuid,
         parent_message_id=args.parent_message_id,
-        per_page=args.per_page,
+        previous_per_page=previous_per_page,
+        next_per_page=next_per_page,
+        cursor=args.cursor,
     )
-    print(json.dumps({
-        "success": True,
-        "count": len(replies),
-        "replies": [{"id": m.get("id"), "body": m.get("body"), "created_at": m.get("created_at"),
-                      "parent_message_id": m.get("parent_message_id")}
-                     for m in replies],
-    }, ensure_ascii=False, indent=2))
+    records = result.get("records", [])
+    print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else format_chat_messages_table(records, result))
+
+
+def _find_unreplied(roots: list[dict], member_id: int, limit: int) -> list[dict]:
+    if limit < 1:
+        raise ValueError("limit must be positive")
+    unreplied = []
+    for root in roots:
+        participants = root.get("thread_participants_preview") or []
+        participated = any(
+            isinstance(participant, dict)
+            and participant.get("community_member_id") == member_id
+            for participant in participants
+        )
+        if not participated:
+            unreplied.append(root)
+    unreplied.sort(key=lambda message: str(message.get("created_at") or ""), reverse=True)
+    return unreplied[:limit]
+
+
+def cmd_unreplied(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    client = CircleClient(settings, timeout=args.timeout)
+    room_uuid = _resolve_room_uuid(client, args)
+    messages = _find_unreplied(
+        client.scan_chat_roots(room_uuid),
+        args.member_id,
+        args.limit,
+    )
+    print(json.dumps(messages, ensure_ascii=False, indent=2) if args.json else format_unreplied_table(messages))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -542,6 +644,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Unofficial local-first Circle member notification client",
     )
     parser.add_argument("--env-file", default=".env", help="Local credential file")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output complete raw JSON instead of compact human/AI-friendly text",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     configure = subparsers.add_parser("configure", help="Import browser Copy as cURL")
@@ -608,6 +715,11 @@ def build_parser() -> argparse.ArgumentParser:
     spaces.add_argument("--timeout", type=float, default=30)
     spaces.set_defaults(handler=cmd_spaces)
 
+    get_space = subparsers.add_parser("get-space", help="Get one space with chat metadata")
+    get_space.add_argument("-s", "--space-id", type=int, required=True)
+    get_space.add_argument("--timeout", type=float, default=30)
+    get_space.set_defaults(handler=cmd_get_space)
+
     list_posts = subparsers.add_parser("list-posts", help="List posts in a space")
     list_posts.add_argument("-s", "--space-id", type=int, required=True)
     list_posts.add_argument("--page", type=int, default=1)
@@ -669,7 +781,9 @@ def build_parser() -> argparse.ArgumentParser:
     upload_image.set_defaults(handler=cmd_upload_image)
 
     chat_send = subparsers.add_parser("chat-send", help="Send a chat message (dry-run by default)")
-    chat_send.add_argument("--room-uuid", required=True)
+    chat_send_room = chat_send.add_mutually_exclusive_group(required=True)
+    chat_send_room.add_argument("--room-uuid")
+    chat_send_room.add_argument("--space-id", type=int)
     chat_send.add_argument("--participant-id", type=int, required=True)
     chat_send.add_argument("--text", required=True)
     chat_send.add_argument("--parent-message-id", type=int, default=None)
@@ -679,19 +793,40 @@ def build_parser() -> argparse.ArgumentParser:
     chat_send.set_defaults(handler=cmd_chat_send)
 
     list_chat = subparsers.add_parser("list-chat-messages", help="List messages in a chat room")
-    list_chat.add_argument("--room-uuid", required=True)
-    list_chat.add_argument("--previous-per-page", type=int, default=0, help="Number of older messages to fetch")
-    list_chat.add_argument("--next-per-page", type=int, default=50, help="Number of newer messages to fetch")
-    list_chat.add_argument("--before-creation-uuid", default=None, help="Cursor for pagination")
+    list_chat_room = list_chat.add_mutually_exclusive_group(required=True)
+    list_chat_room.add_argument("--room-uuid")
+    list_chat_room.add_argument("--space-id", type=int)
+    list_chat.add_argument("--cursor", type=int, default=None, help="Numeric message id cursor")
+    list_chat.add_argument("--direction", choices=("previous", "next"), default="previous")
+    list_chat.add_argument("--previous-per-page", type=int, default=50, help="Number of older messages to fetch")
+    list_chat.add_argument("--next-per-page", type=int, default=0, help="Number of newer messages to fetch")
     list_chat.add_argument("--timeout", type=float, default=30)
     list_chat.set_defaults(handler=cmd_list_chat_messages)
 
     list_replies = subparsers.add_parser("list-chat-replies", help="List thread replies for a message")
-    list_replies.add_argument("--room-uuid", required=True)
+    list_replies_room = list_replies.add_mutually_exclusive_group(required=True)
+    list_replies_room.add_argument("--room-uuid")
+    list_replies_room.add_argument("--space-id", type=int)
     list_replies.add_argument("--parent-message-id", type=int, required=True)
-    list_replies.add_argument("--per-page", type=int, default=50)
+    list_replies.add_argument("--cursor", type=int, default=None, help="Numeric message id cursor")
+    list_replies.add_argument("--direction", choices=("previous", "next"), default="next")
+    list_replies.add_argument("--previous-per-page", type=int, default=0)
+    list_replies.add_argument("--next-per-page", type=int, default=50)
     list_replies.add_argument("--timeout", type=float, default=30)
     list_replies.set_defaults(handler=cmd_list_chat_replies)
+
+    unreplied = subparsers.add_parser("unreplied", help="List root messages not replied to by a member")
+    unreplied_room = unreplied.add_mutually_exclusive_group(required=True)
+    unreplied_room.add_argument("--room-uuid")
+    unreplied_room.add_argument("--space-id", type=int)
+    unreplied.add_argument("--member-id", type=int, required=True)
+    unreplied.add_argument("--limit", type=int, default=50)
+    unreplied.add_argument("--timeout", type=float, default=30)
+    unreplied.set_defaults(handler=cmd_unreplied)
+
+    # Accept the global flag after a subcommand too, matching the documented examples.
+    for subparser in subparsers.choices.values():
+        subparser.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
 
     return parser
 
@@ -708,10 +843,14 @@ def main() -> None:
         OSError,
         json.JSONDecodeError,
     ) as exc:
-        payload = {"success": False, "error": str(exc), "error_type": type(exc).__name__}
+        error = _safe_error_message(str(exc))
+        payload = {"success": False, "error": error, "error_type": type(exc).__name__}
         if isinstance(exc, CircleClientError) and exc.status_code is not None:
             payload["status_code"] = exc.status_code
-        print(json.dumps(payload, ensure_ascii=False), file=sys.stderr)
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False), file=sys.stderr)
+        else:
+            print(f"Error: {error}", file=sys.stderr)
         raise SystemExit(1) from exc
 
 
