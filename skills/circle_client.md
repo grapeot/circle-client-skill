@@ -48,7 +48,8 @@ description: >-
 
 # 帖子、空间、评论、图片、聊天（V1）
 .venv/bin/circle-client spaces
-.venv/bin/circle-client list-posts -s <space_id> [--page N] [--per-page N]
+.venv/bin/circle-client list-posts -s <space_id> [--page N] [--per-page N] [--full]
+.venv/bin/circle-client get-post -s <space_id> --slug <slug> [--extract-text]
 .venv/bin/circle-client create-post -s <space_id> --name "Title" --user-id <id> --dry-run
 .venv/bin/circle-client create-post -s <space_id> --name "Title" --user-id <id> --execute --confirm CREATE-POST
 .venv/bin/circle-client update-post -s <space_id> --post-id <id> --slug <slug> --name "New" --user-id <id> --execute --confirm UPDATE-POST
