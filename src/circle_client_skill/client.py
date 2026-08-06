@@ -142,10 +142,10 @@ class CircleClient:
         if response.status_code not in accept_statuses:
             request_id = response.headers.get("cf-ray") or response.headers.get("x-request-id")
             suffix = f"; request_id={request_id}" if request_id else ""
-            body_snippet = response.text[:500] if response.text else ""
+            body_snippet = response.text[:200] if response.text else ""
             raise CircleClientError(
                 f"Circle returned HTTP {response.status_code}{suffix}"
-                + (f": {body_snippet}" if body_snippet else ""),
+                + (f" [body: {body_snippet}]" if body_snippet else ""),
                 status_code=response.status_code,
             )
         if response.status_code == 204 or not response.text:
@@ -383,7 +383,10 @@ class CircleClient:
             raise CircleClientError("direct_uploads did not return a direct_upload field")
         put_url = blob["direct_upload"]["url"]
         put_headers = blob["direct_upload"]["headers"]
-        put_response = self.session.put(put_url, headers=put_headers, data=file_content, timeout=self.timeout)
+        try:
+            put_response = self.session.put(put_url, headers=put_headers, data=file_content, timeout=self.timeout)
+        except requests.RequestException as exc:
+            raise CircleClientError(f"S3 PUT request failed: {type(exc).__name__}") from exc
         if put_response.status_code not in (200, 204):
             raise CircleClientError(
                 f"S3 PUT failed with HTTP {put_response.status_code}",
@@ -441,7 +444,8 @@ class CircleClient:
             },
         )
         if isinstance(result, dict):
-            return result.get("records", [])
+            records = result.get("records")
+            return records if isinstance(records, list) else []
         return result if isinstance(result, list) else []
 
     def send_chat_message(

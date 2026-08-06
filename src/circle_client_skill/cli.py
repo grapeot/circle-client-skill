@@ -298,7 +298,13 @@ def cmd_upload_image(args: argparse.Namespace) -> None:
         print(json.dumps(preflight, ensure_ascii=False, indent=2))
         return
     result = client.upload_image(args.file)
-    print(json.dumps({"success": True, "dry_run": False, "signed_id": result.get("signed_id"), "url": result.get("url")}, ensure_ascii=False, indent=2))
+    direct_upload = result.get("direct_upload", {})
+    print(json.dumps({
+        "success": True,
+        "dry_run": False,
+        "signed_id": result.get("signed_id"),
+        "url": direct_upload.get("url"),
+    }, ensure_ascii=False, indent=2))
 
 
 def cmd_chat_send(args: argparse.Namespace) -> None:
