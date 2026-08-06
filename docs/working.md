@@ -4,6 +4,12 @@
 
 ### 2026-08-06
 
+- 完成 CLI 输出改版：默认输出紧凑纯文本表格/卡片，`--json` 保留 JSON 通道；新增独立 `formatters.py` 和 TipTap plain-text 提取。
+- 新增 `get-space` 与 `unreplied` 命令；三个 chat 命令都支持 `--space-id` 自动解析 `chat_room_uuid`。
+- 修复 chat 分页 contract：删除无效的 `before_creation_uuid`，改用数字 `id` cursor、`first_id`/`last_id` 和 previous/next 方向。
+- 新增 `scan_chat_roots`，处理 cursor anchor overlap、message ID 去重、cursor 前进检查、`max_pages` 上限和 `total_count` 一致性验证。
+- 新增 formatter、CLI unreplied 和完整 root scan 的离线测试。
+
 - 通过 Playwright CDP 拦截 Circle 前端 fetch 调用，逆向出 posts/spaces/comments/chat/image upload 的 internal API endpoint。
 - 所有 endpoint 已用 plain `requests` + cookie + CSRF 验证通过（test posts space + test chat room）。
 - 新增 `CircleSettings.base_url` property，从 notifications_url 推导 community host。
@@ -48,4 +54,4 @@
 - 页面 reload 会重置 `window.__captured`；fetch monkey-patch 拦截器在 SPA 内部导航时存活，但在全页刷新时丢失。Update post 的 Save 触发了页面刷新，需要改用 CDP `page.on("request"/"response")` 持久监听。
 - Chat thread reply 的 `parent_message_id` 实际工作正常。之前的 "失败" 是 verify 脚本 bug——用 `response.id`（不存在，response 只有 `creation_uuid`）作为 parent_message_id，导致 None。
 - `csrf_token` cookie 可能在页面 reload 后变化；`.env` 里的 CSRF 值需要定期更新。
-- Circle chat 用 cursor-based pagination（`previous_per_page` + `next_per_page` + `before_creation_uuid`），不是 page numbers。参考 translation bot 的实现。
+- Circle chat 用 cursor-based pagination（`id` + `previous_per_page` + `next_per_page`），不是 page numbers。历史方向以 `first_id` 为 cursor，未来方向以 `last_id` 为 cursor；相邻页含 anchor overlap，必须按 message ID 去重。

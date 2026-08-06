@@ -7,6 +7,9 @@
 - Pagination：显式 `has_next_page`、页码更新、最大页数和重复页保护。
 - Render：Markdown table escaping、CSV 固定列、空数据。
 - CLI：错误输出不得含 Authorization 或 Cookie。
+- Formatters：空列表输出表头、长字段截断、tiptap 纯文本提取（嵌套 content、缺失 text node、非 dict 节点）。
+- `unreplied`：mock `scan_chat_roots` + `get_space`，验证 `thread_participants_preview` 匹配逻辑、分页遍历和 dedup。
+- Chat 分页：`--cursor`（数字 id）参数传递、`--direction` previous/next 方向切换、anchor overlap 去重。
 
 默认测试必须完全离线，不读取 `.env`，不访问 Circle。
 

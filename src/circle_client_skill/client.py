@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import mimetypes
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,16 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import requests
 
 from .config import CircleSettings
+
+
+def _redact_credentials(value: str) -> str:
+    value = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer ***", value)
+    return re.sub(
+        r"(?i)([\"']?(?:authorization|cookie|x-csrf-token|csrf_token)[\"']?\s*[:=]\s*)"
+        r"([\"']?)[^\"'\s,}\]]+",
+        r"\1\2***",
+        value,
+    )
 
 
 class CircleClientError(RuntimeError):
@@ -142,7 +153,7 @@ class CircleClient:
         if response.status_code not in accept_statuses:
             request_id = response.headers.get("cf-ray") or response.headers.get("x-request-id")
             suffix = f"; request_id={request_id}" if request_id else ""
-            body_snippet = response.text[:200] if response.text else ""
+            body_snippet = _redact_credentials(response.text[:200]) if response.text else ""
             raise CircleClientError(
                 f"Circle returned HTTP {response.status_code}{suffix}"
                 + (f" [body: {body_snippet}]" if body_snippet else ""),
@@ -400,22 +411,22 @@ class CircleClient:
         self,
         chat_room_uuid: str,
         *,
-        previous_per_page: int = 0,
-        next_per_page: int = 50,
-        before_creation_uuid: str | None = None,
+        previous_per_page: int = 50,
+        next_per_page: int = 0,
+        cursor: int | None = None,
     ) -> dict[str, Any]:
         """List messages in a chat room.
 
-        Circle chat uses cursor-based pagination via before_creation_uuid,
-        not page numbers. Set previous_per_page to fetch older messages
-        and next_per_page to fetch newer ones.
+        Circle chat uses the numeric message id as its cursor. Set
+        previous_per_page to fetch older messages and next_per_page to fetch
+        newer ones.
         """
         params: dict[str, str] = {
             "previous_per_page": str(previous_per_page),
             "next_per_page": str(next_per_page),
         }
-        if before_creation_uuid:
-            params["before_creation_uuid"] = before_creation_uuid
+        if cursor is not None:
+            params["id"] = str(cursor)
         return self._request(
             "GET",
             f"{self.settings.base_url}/internal_api/chat_rooms/{chat_room_uuid}/messages",
@@ -427,26 +438,87 @@ class CircleClient:
         chat_room_uuid: str,
         parent_message_id: int | str,
         *,
-        per_page: int = 50,
-    ) -> list[dict[str, Any]]:
-        """Fetch thread replies for a specific message.
-
-        Uses the same messages endpoint with parent_message_id as a query param.
-        Returns a list of reply message records.
-        """
+        previous_per_page: int = 0,
+        next_per_page: int = 50,
+        cursor: int | None = None,
+    ) -> dict[str, Any]:
+        """Fetch one cursor-based page of replies for a specific message."""
+        params = {
+            "previous_per_page": str(previous_per_page),
+            "next_per_page": str(next_per_page),
+            "parent_message_id": str(parent_message_id),
+        }
+        if cursor is not None:
+            params["id"] = str(cursor)
         result = self._request(
             "GET",
             f"{self.settings.base_url}/internal_api/chat_rooms/{chat_room_uuid}/messages",
-            params={
-                "previous_per_page": str(per_page),
-                "next_per_page": "0",
-                "parent_message_id": str(parent_message_id),
-            },
+            params=params,
         )
-        if isinstance(result, dict):
-            records = result.get("records")
-            return records if isinstance(records, list) else []
-        return result if isinstance(result, list) else []
+        if not isinstance(result, dict):
+            raise CircleClientError("Circle chat replies returned an invalid response")
+        return result
+
+    def scan_chat_roots(self, room_uuid: str, *, max_pages: int = 100) -> list[dict[str, Any]]:
+        """Enumerate every root message, accounting for cursor anchor overlap."""
+        if max_pages < 1:
+            raise ValueError("max_pages must be positive")
+
+        seen: dict[int, dict[str, Any]] = {}
+        used_cursors: set[int] = set()
+        reported_total: int | None = None
+        cursor: int | None = None
+
+        for _ in range(max_pages):
+            payload = self.list_chat_messages(
+                room_uuid,
+                previous_per_page=50,
+                next_per_page=0,
+                cursor=cursor,
+            )
+            records = payload.get("records")
+            if not isinstance(records, list):
+                raise CircleClientError("Circle chat page returned an invalid records payload")
+
+            total = payload.get("total_count")
+            if total is not None:
+                if type(total) is not int or total < 0:
+                    raise CircleClientError("Circle chat page returned an invalid total_count")
+                if reported_total is not None and total != reported_total:
+                    raise CircleClientError(
+                        f"Chat pagination total_count changed from {reported_total} to {total}"
+                    )
+                reported_total = total
+
+            before = len(seen)
+            for record in records:
+                if not isinstance(record, dict) or type(record.get("id")) is not int:
+                    raise CircleClientError("Circle chat page contained a message without a numeric id")
+                if record.get("parent_message_id") is None:
+                    seen[record["id"]] = record
+
+            has_previous = payload.get("has_previous_page")
+            if type(has_previous) is not bool:
+                raise CircleClientError("Circle chat page returned an invalid has_previous_page")
+            if not has_previous:
+                break
+
+            next_cursor = payload.get("first_id")
+            if type(next_cursor) is not int or next_cursor in used_cursors:
+                raise CircleClientError("Chat pagination cursor did not advance")
+            used_cursors.add(next_cursor)
+            cursor = next_cursor
+            if len(seen) == before:
+                raise CircleClientError("Chat pagination made no record progress")
+        else:
+            raise CircleClientError(f"Reached max_pages={max_pages} before chat pagination completed")
+
+        if reported_total is not None and len(seen) != reported_total:
+            raise CircleClientError(
+                f"Chat pagination total_count mismatch: reported {reported_total}, "
+                f"enumerated {len(seen)}"
+            )
+        return sorted(seen.values(), key=lambda record: (str(record.get("created_at") or ""), record["id"]))
 
     def send_chat_message(
         self,
