@@ -1,10 +1,10 @@
 ---
 name: circle-client
 description: >-
-  Fetches a signed-in Circle member's notifications through Circle's web internal API,
-  using a locally imported browser Copy as cURL request, and renders lossless JSON as
-  Markdown or CSV. Use for Circle unread notifications, notification export, or local
-  AI-assisted notification triage. This is not Circle Admin API or Circle MCP.
+  Fetches a signed-in Circle member's notifications through Circle's web internal API
+  and renders them as a clickable grouped HTML view (or Markdown/CSV). Primary use case:
+  viewing / visualizing / triaging your Circle notifications locally. Use when a user
+  asks to see, review, visualize, export, or summarize their Circle notifications.
 ---
 
 # Circle Client Skill
@@ -20,6 +20,19 @@ description: >-
 - 用户提供了浏览器 notification request 的 Copy as cURL，或已把它放进剪贴板。
 
 发布或更新 Circle 帖子应使用独立的 Circle Post Skill，不要用本 skill。
+
+## 看通知 / 通知可视化（首要工作流）
+
+当用户说"看通知 / 我的通知 / notifications / 可视化通知 / 通知 dashboard / 通知面板 / 最近有什么通知 / check my notifications / show notifications / visualize my notifications"等任一表达时，默认走 `fetch` → `render --format html` 两步，这是本 skill 的首要工作流，不要另写可视化脚本：
+
+```bash
+.venv/bin/circle-client fetch --group inbox --per-page 500 --output data/notifications.json
+.venv/bin/circle-client render --input data/notifications.json --format html --output data/index.html
+# macOS 直接打开
+open data/index.html
+```
+
+`render --format html` 已内置按类分组（Lesson comments / Comments / Likes / New members / Other）的响应式可点击列表，可点击跳转原帖；这就是"可视化通知"的标准答案。只有当用户明确要求聚合统计（类型分布、时间轴、TOP 互动者等）且现成 HTML 不满足时，才在 fetch JSON 上写一次性分析代码，不要为单次需求扩张 CLI contract。
 
 ## 配置
 
