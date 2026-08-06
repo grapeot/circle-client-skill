@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from urllib.parse import urlsplit
 from .client import CircleClient, CircleClientError
 from .config import (
     ConfigurationError,
+    build_settings_from_cookies,
     jwt_expiration,
     load_settings,
     parse_curl,
@@ -71,6 +73,110 @@ def cmd_auth_status(args: argparse.Namespace) -> None:
                 "cookie_present": bool(settings.cookie),
                 "jwt_expires_at": expiration.isoformat() if expiration else None,
                 "jwt_expired": expiration <= now if expiration else None,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_configure_browser(args: argparse.Namespace) -> None:
+    """Open a visible browser, let the user log in, extract cookies to .env."""
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        raise ConfigurationError(
+            "Playwright is not installed. Install with: uv pip install -e '.[browser]' "
+            "then run: python -m playwright install chromium"
+        ) from None
+
+    import asyncio
+
+    async def _run() -> dict:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=False)
+            context = await browser.new_context()
+            page = await context.new_page()
+            await page.goto(args.url, wait_until="domcontentloaded")
+
+            print(
+                json.dumps(
+                    {
+                        "action": "browser_opened",
+                        "url": args.url,
+                        "message": "Please log in to your Circle community. "
+                        "When you see the feed page, the script will continue automatically.",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                flush=True,
+            )
+
+            # Wait until the user is logged in (URL changes away from login page)
+            # Circle SSO redirects to /feed or /c/ after login
+            with contextlib.suppress(Exception):
+                await page.wait_for_url(
+                    lambda url: "login" not in url and "sign_in" not in url,
+                    timeout=300000,  # 5 minutes
+                )
+
+            # Give the page a moment to settle
+            await page.wait_for_load_state("domcontentloaded")
+            await asyncio.sleep(2)
+
+            # Extract cookies via CDP
+            cookies = await context.cookies()
+            target_domain = urlsplit(args.url).netloc
+            relevant = [c for c in cookies if target_domain in c.get("domain", "")]
+            if not relevant:
+                raise ConfigurationError(
+                    f"No cookies found for {target_domain}. Make sure you are logged in."
+                )
+
+            cookie_header = "; ".join(f'{c["name"]}={c["value"]}' for c in relevant)
+            csrf = next((c for c in relevant if c["name"] == "csrf_token"), None)
+            csrf_value = csrf["value"] if csrf else None
+
+            # Get user agent from the page
+            user_agent = await page.evaluate("() => navigator.userAgent")
+
+            # Try to get frontend version from meta tag or window
+            frontend_version = await page.evaluate(
+                "() => window.CIRCLE_APP_VERSION || "
+                "document.documentElement.getAttribute('data-circle-frontend-version') || null"
+            )
+
+            await browser.close()
+
+            return {
+                "cookie_header": cookie_header,
+                "csrf_token": csrf_value,
+                "user_agent": user_agent,
+                "frontend_version": frontend_version,
+                "cookie_count": len(relevant),
+            }
+
+    result = asyncio.run(_run())
+
+    settings = build_settings_from_cookies(
+        community_url=args.url,
+        cookie_header=result["cookie_header"],
+        csrf_token=result["csrf_token"],
+        user_agent=result["user_agent"],
+        frontend_version=result["frontend_version"],
+    )
+    env_path = Path(args.env_file)
+    save_settings(settings, env_path)
+
+    print(
+        json.dumps(
+            {
+                "success": True,
+                "env_file": str(env_path.resolve()),
+                "host": urlsplit(args.url).netloc,
+                "cookie_count": result["cookie_count"],
+                "csrf_saved": bool(result["csrf_token"]),
             },
             ensure_ascii=False,
             indent=2,
@@ -385,6 +491,17 @@ def build_parser() -> argparse.ArgumentParser:
     sources.add_argument("--stdin", action="store_true")
     sources.add_argument("--file")
     configure.set_defaults(handler=cmd_configure)
+
+    configure_browser = subparsers.add_parser(
+        "configure-browser",
+        help="Open a visible browser, let user log in, extract cookies to .env",
+    )
+    configure_browser.add_argument(
+        "--url",
+        default="https://app.circle.so",
+        help="Circle community URL to navigate to (default: https://app.circle.so)",
+    )
+    configure_browser.set_defaults(handler=cmd_configure_browser)
 
     auth_status = subparsers.add_parser("auth-status", help="Show masked credential status")
     auth_status.set_defaults(handler=cmd_auth_status)

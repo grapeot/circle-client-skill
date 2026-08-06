@@ -236,3 +236,38 @@ def jwt_expiration(authorization: str) -> datetime | None:
         return datetime.fromtimestamp(int(_jwt_claims(authorization)["exp"]), tz=UTC)
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def build_settings_from_cookies(
+    community_url: str,
+    cookie_header: str,
+    csrf_token: str | None,
+    user_agent: str | None = None,
+    frontend_version: str | None = None,
+) -> CircleSettings:
+    """Build CircleSettings from browser cookies instead of a cURL import.
+
+    This is used by the `configure-browser` CLI command which opens a Playwright
+    browser, lets the user log in, then extracts cookies via CDP.
+    """
+    parsed = urlparse(community_url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ConfigurationError("community_url must be HTTPS")
+
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    notifications_url = f"{base}/internal_api/notifications"
+    count_url = f"{base}/internal_api/notifications/new_notifications_count"
+    reset_count_url = f"{base}/internal_api/notifications/mark_all_as_read"
+
+    return CircleSettings(
+        notifications_url=notifications_url,
+        count_url=count_url,
+        reset_count_url=reset_count_url,
+        authorization="Bearer browser-session",
+        cookie=cookie_header,
+        user_agent=user_agent,
+        referer=f"{base}/",
+        frontend_version=frontend_version,
+        csrf_token=csrf_token,
+        origin=base,
+    )

@@ -21,6 +21,15 @@ description: >-
 
 发布或更新 Circle 帖子应使用独立的 Circle Post Skill，不要用本 skill。
 
+## 配置
+
+两种方式导入凭证：
+
+1. **浏览器自动导入**（推荐）：`circle-client configure-browser --url https://your-community.circle.so`，打开可见浏览器，登录后自动提取 cookie。
+2. **Copy as cURL 导入**：在浏览器 DevTools Copy as cURL 一个 notification 请求，`circle-client configure --from-clipboard`。
+
+配置后用 `circle-client auth-status` 检查凭证状态。
+
 ## 可用命令
 
 从项目根目录运行：
