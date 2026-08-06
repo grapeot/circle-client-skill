@@ -79,6 +79,29 @@ def test_format_posts_table_compact_and_full() -> None:
     assert "Hello world" in full
 
 
+def test_format_posts_table_replies_column_only_when_counts_present() -> None:
+    base = {
+        "id": 1,
+        "name": "Intro",
+        "slug": "intro",
+        "published_at": "2026-01-01T00:00:00Z",
+        "community_member_id": 7,
+    }
+    # 无 comments_count -> 不出 REPLIES 列
+    without = format_posts_table([{**base, "topics": []}], False)
+    assert "REPLIES" not in without
+    # 有 comments_count -> 出 REPLIES 列且数值正确
+    with_counts = format_posts_table([{**base, "comments_count": 3, "topics": []}], False)
+    assert "REPLIES" in with_counts
+    assert "3" in with_counts
+    # 混合时缺失 count 显示空
+    mixed = format_posts_table(
+        [{**base, "comments_count": 3, "topics": []}, {**base, "id": 2, "comments_count": None, "topics": []}],
+        False,
+    )
+    assert "REPLIES" in mixed
+
+
 def test_format_post_card_extracts_tiptap_text() -> None:
     output = format_post_card(
         {

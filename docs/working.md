@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-08-06 list-posts 新增 --with-counts (replies count)
+
+- `list-posts --with-counts`：对每个 post 调 `list_comments per_page=1` 拿 `count`，注入 `comments_count`，formatter 在 `comments_count` 存在时显示 REPLIES 列。N+1 请求，opt-in。
+- 确认 Circle member-session API 的 post-list / post-detail endpoint 都不返回 post 级别 `likes_count`，也无 `/internal_api/posts/<id>/likes` endpoint。comment 对象带 `likes_count`，post 不带。likes 列不加，skill 文档已写明这一限制。
+- 新增测试：`test_list_posts_with_counts_injects_comment_count`、`test_list_posts_without_counts_does_not_probe_comments`、`test_format_posts_table_replies_column_only_when_counts_present`。
+
 ### 2026-08-06 Chat room feed 默认倒序 + skill 文档补"获取最新内容" workflow
 
 - `cmd_list_chat_messages` 在输出层 reverse records，让 room-level feed 默认 newest-first；`list-chat-replies` 保持 ascending（thread 自上而下阅读）。Circle chat API 本身永远返回 ascending，所以 reversal 放在 CLI 输出层，不动 client 层契约、不动 pagination 元数据（`first_id`/`last_id`/`has_*` 仍对应 ascending 原页，用于推导下一页 cursor）。`scan_chat_roots`/`unreplied` 直接调 client，不受影响。
