@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### 2026-08-06 Chat room feed 默认倒序 + skill 文档补"获取最新内容" workflow
+
+- `cmd_list_chat_messages` 在输出层 reverse records，让 room-level feed 默认 newest-first；`list-chat-replies` 保持 ascending（thread 自上而下阅读）。Circle chat API 本身永远返回 ascending，所以 reversal 放在 CLI 输出层，不动 client 层契约、不动 pagination 元数据（`first_id`/`last_id`/`has_*` 仍对应 ascending 原页，用于推导下一页 cursor）。`scan_chat_roots`/`unreplied` 直接调 client，不受影响。
+- 新增测试 `test_list_chat_messages_renders_newest_first` 覆盖 reverse 行为和 cursor 元数据保留。
+- canonical skill 和 workspace 私有 skill 新增"获取最新内容"workflow：`get-space` 判 `type` → `list-posts`（post space）或 `list-chat-messages --direction previous`（chat space），两路默认 newest-first。同时写明 page 内 ordering 与 cursor 翻页方向是两个维度，不耦合。
+- `list-posts` 本来就按 `published_at` 倒序（置顶钉顶），不改代码，只在文档里把契约写明。
+
 ### 2026-08-06
 
 - 完成 CLI 输出改版：默认输出紧凑纯文本表格/卡片，`--json` 保留 JSON 通道；新增独立 `formatters.py` 和 TipTap plain-text 提取。

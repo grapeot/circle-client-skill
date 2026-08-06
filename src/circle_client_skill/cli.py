@@ -589,7 +589,12 @@ def cmd_list_chat_messages(args: argparse.Namespace) -> None:
         next_per_page=next_per_page,
         cursor=args.cursor,
     )
-    records = result.get("records", [])
+    # Circle's chat API always returns messages ascending. The room-level view
+    # is a feed, so surface the newest entry first while leaving pagination
+    # cursors (first_id/last_id/has_*) untouched. `list-chat-replies` keeps
+    # ascending because a thread is read top-down.
+    result = {**result, "records": list(reversed(result.get("records", [])))}
+    records = result["records"]
     print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else format_chat_messages_table(records, result))
 
 

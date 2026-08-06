@@ -52,6 +52,21 @@ description: >-
 .venv/bin/circle-client count  # 快速验证凭证是否有效
 ```
 
+## 获取最新内容（跨 space 类型）
+
+需要"某 space 最近 N 条内容"时，先用 `get-space` 判断 `type`，再分发到对应命令；两者默认都按时间倒序返回（newest first），调用方不需要先知道 space 类型：
+
+1. `.venv/bin/circle-client get-space -s <space_id>` 看 `type` 字段。
+2. `basic` / `course` / `event` → `list-posts -s <space_id> --per-page N`（置顶帖钉顶，其余按 `published_at` 倒序）。
+3. `chat` → `list-chat-messages --space-id <space_id> --direction previous --previous-per-page N`（room 级 feed，已按 `created_at` 倒序）。
+
+要拿单条全文：post 用 `get-post --slug`；chat message 当前没有单独 fetch 命令，表格预览只截前 80 字符，需要全文时加 `--json` 取 `records[].body`。
+
+## 排序与分页契约
+
+- **page 内排序**：`list-posts`、`list-chat-messages` 默认 newest-first；`list-chat-replies` 保持 ascending（thread 自上而下阅读）。
+- **cursor 翻页**：`list-chat-messages` 的 `--direction next/previous` 描述的是"取更新/更老的页"，page 内 ordering 固定，两者不耦合。pagination 元数据（`first_id`/`last_id`/`has_*`）始终对应 Circle API 返回的 ascending 原页，用于推导下一页 cursor。
+
 ## 可用命令
 
 从项目根目录运行：
@@ -79,8 +94,8 @@ description: >-
 .venv/bin/circle-client reply-post --post-id <id> --text "Reply" --execute --confirm REPLY-POST
 .venv/bin/circle-client upload-image -f <path> --execute --confirm UPLOAD-IMAGE
 .venv/bin/circle-client chat-send --room-uuid <uuid> --participant-id <id> --text "Hello" --execute --confirm CHAT-SEND
-.venv/bin/circle-client list-chat-messages --room-uuid <uuid> [--previous-per-page N] [--next-per-page N]
-.venv/bin/circle-client list-chat-replies --room-uuid <uuid> --parent-message-id <id>
+.venv/bin/circle-client list-chat-messages --space-id <id> --direction previous --previous-per-page N   # 默认 newest-first
+.venv/bin/circle-client list-chat-replies --room-uuid <uuid> --parent-message-id <id>                      # thread 保持 ascending
 ```
 
 `fetch` 默认在连续 100 条已读记录后停止。用户明确要求完整历史审计时才使用 `--stop-after-consecutive-read 0`。
