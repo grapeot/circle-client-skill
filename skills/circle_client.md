@@ -23,12 +23,34 @@ description: >-
 
 ## 配置
 
-两种方式导入凭证：
+凭证过期时（`auth-status` 显示失效、或 API 返回 401），用以下方式刷新：
 
-1. **浏览器自动导入**（推荐）：`circle-client configure-browser --url https://your-community.circle.so`，打开可见浏览器，登录后自动提取 cookie。
-2. **Copy as cURL 导入**：在浏览器 DevTools Copy as cURL 一个 notification 请求，`circle-client configure --from-clipboard`。
+### 方式一：configure-browser（推荐）
 
-配置后用 `circle-client auth-status` 检查凭证状态。
+```bash
+.venv/bin/circle-client configure-browser --url https://your-community.circle.so
+```
+
+打开一个可见浏览器窗口，登录后自动提取 cookie + CSRF + community_id，写入 `.env`。不需要 DevTools，不需要 Copy as cURL。
+
+需要 Playwright：`uv pip install -e '.[browser]'` + `python -m playwright install chromium`
+
+### 方式二：configure（从 Copy as cURL，备选）
+
+浏览器 DevTools → Network 找到一个 `/internal_api/` 请求，右键 Copy as cURL，然后：
+
+```bash
+.venv/bin/circle-client configure --from-clipboard
+```
+
+**不要让用户把 cookie 或 cURL 粘贴到聊天里。** 用户 Copy 后说"已复制"，CLI 从剪贴板读取。
+
+### 验证
+
+```bash
+.venv/bin/circle-client auth-status
+.venv/bin/circle-client count  # 快速验证凭证是否有效
+```
 
 ## 可用命令
 
