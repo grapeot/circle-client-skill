@@ -2,7 +2,7 @@
 
 Circle Client Skill 是一个非官方、local-first 的 Circle 成员客户端。它从浏览器中已经成功的通知请求导入临时登录凭证，分页抓取个人未读通知，并将结果渲染为便于阅读和后续 AI 筛选的 Markdown、CSV 或响应式 HTML。
 
-当前版本只提供只读通知能力，不需要 Circle Admin API 或 Headless API。
+V1 新增了帖子、空间、评论、聊天和图片上传能力，全部走 member session（cookie + CSRF），不需要 Admin API token。所有写操作默认 dry-run，live 执行需 `--execute --confirm <ACTION>`。
 
 ## 安装
 
@@ -65,6 +65,28 @@ circle-client serve --directory data --host 0.0.0.0 --port 8765
 ```bash
 circle-client auth-status
 ```
+
+## 帖子、空间、评论、聊天和图片（V1）
+
+V1 通过逆向 Circle 前端 internal API 实现了完整的社区操作能力，全部用普通成员 session 鉴权（cookie + CSRF），不需要 Admin API token：
+
+```bash
+# 只读
+circle-client spaces
+circle-client list-posts -s <space_id> [--page N] [--per-page N]
+circle-client list-chat-messages --room-uuid <uuid>
+circle-client list-chat-replies --room-uuid <uuid> --parent-message-id <id>
+
+# 写操作（默认 dry-run，live 执行需 --execute --confirm <ACTION>）
+circle-client create-post -s <space_id> --name "Title" --user-id <id> --execute --confirm CREATE-POST
+circle-client update-post -s <space_id> --post-id <id> --slug <slug> --name "New" --user-id <id> --execute --confirm UPDATE-POST
+circle-client delete-post -s <space_id> --slug <slug> --execute --confirm DELETE-POST
+circle-client reply-post --post-id <id> --text "Reply" --execute --confirm REPLY-POST
+circle-client upload-image -f <path> --execute --confirm UPLOAD-IMAGE
+circle-client chat-send --room-uuid <uuid> --participant-id <id> --text "Hello" --execute --confirm CHAT-SEND
+```
+
+所有写操作默认只输出 preflight（操作类型、目标 ID、关键参数），不碰网络。Live 执行需同时提供 `--execute --confirm <ACTION>`，且用户当次明确授权。错误信息透传 HTTP status code 和 response body 片段，不封装成笼统的错误。
 
 ## Agent Skill
 
