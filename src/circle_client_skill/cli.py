@@ -287,16 +287,53 @@ def cmd_list_posts(args: argparse.Namespace) -> None:
         space_id=args.space_id, page=args.page, per_page=args.per_page
     )
     records = result.get("records", [])
+    if args.full:
+        posts = records
+    else:
+        posts = [{"id": p.get("id"), "name": p.get("name"), "slug": p.get("slug"),
+                    "published_at": p.get("published_at"), "community_member_id": p.get("community_member_id")}
+                   for p in records]
     print(json.dumps({
         "success": True,
         "count": result.get("count", len(records)),
         "page": result.get("page", args.page),
         "per_page": result.get("per_page", args.per_page),
         "has_next_page": result.get("has_next_page"),
-        "posts": [{"id": p.get("id"), "name": p.get("name"), "slug": p.get("slug"),
-                    "published_at": p.get("published_at"), "community_member_id": p.get("community_member_id")}
-                   for p in records],
+        "posts": posts,
     }, ensure_ascii=False, indent=2))
+
+
+def cmd_get_post(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    result = CircleClient(settings, timeout=args.timeout).get_post(
+        space_id=args.space_id, slug=args.slug
+    )
+    post = result if isinstance(result, dict) else {}
+    if args.extract_text:
+        tiptap = post.get("tiptap_body", {})
+        tiptap_body = tiptap.get("body", tiptap)
+        def _extract_text(node: object) -> str:
+            if isinstance(node, dict):
+                if "text" in node:
+                    return str(node["text"])
+                parts = []
+                for c in node.get("content", []):
+                    parts.append(_extract_text(c))
+                return "".join(parts)
+            if isinstance(node, list):
+                return "".join(_extract_text(n) for n in node)
+            return ""
+        post = {
+            "id": post.get("id"),
+            "name": post.get("name"),
+            "slug": post.get("slug"),
+            "space_id": post.get("space_id"),
+            "space_name": post.get("space_name"),
+            "community_member_id": post.get("community_member_id"),
+            "published_at": post.get("published_at"),
+            "body_text": _extract_text(tiptap_body),
+        }
+    print(json.dumps({"success": True, "post": post}, ensure_ascii=False, indent=2))
 
 
 def cmd_create_post(args: argparse.Namespace) -> None:
@@ -553,8 +590,17 @@ def build_parser() -> argparse.ArgumentParser:
     list_posts.add_argument("-s", "--space-id", type=int, required=True)
     list_posts.add_argument("--page", type=int, default=1)
     list_posts.add_argument("--per-page", type=int, default=24)
+    list_posts.add_argument("--full", action="store_true", help="Return full post records (including body)")
     list_posts.add_argument("--timeout", type=float, default=30)
     list_posts.set_defaults(handler=cmd_list_posts)
+
+    get_post = subparsers.add_parser("get-post", help="Get a single post by slug with full content")
+    get_post.add_argument("-s", "--space-id", type=int, required=True)
+    get_post.add_argument("--slug", required=True, help="Post slug (from list-posts)")
+    get_post.add_argument("--extract-text", action="store_true",
+                          help="Extract plain text from tiptap_body instead of returning raw JSON")
+    get_post.add_argument("--timeout", type=float, default=30)
+    get_post.set_defaults(handler=cmd_get_post)
 
     create_post = subparsers.add_parser("create-post", help="Create a post (dry-run by default)")
     create_post.add_argument("-s", "--space-id", type=int, required=True)
