@@ -338,6 +338,21 @@ def cmd_reset_count(args: argparse.Namespace) -> None:
         print(format_mutation_result(result, "reset-count"))
 
 
+def cmd_mark_notification_read(args: argparse.Namespace) -> None:
+    if args.execute and args.confirm != "MARK-NOTIFICATION-READ":
+        raise ValueError("Live execution requires --confirm MARK-NOTIFICATION-READ")
+    settings = load_settings(Path(args.env_file))
+    result = CircleClient(settings, timeout=args.timeout).mark_notification_read(
+        args.notification_id, execute=args.execute
+    )
+    if args.json:
+        _print_json(result)
+    elif result.get("dry_run"):
+        print(format_mutation_dryrun(result))
+    else:
+        print(format_mutation_result(result, "mark-notification-read"))
+
+
 def cmd_render(args: argparse.Namespace) -> None:
     input_path = Path(args.input)
     document = json.loads(input_path.read_text(encoding="utf-8"))
@@ -928,6 +943,16 @@ def build_parser() -> argparse.ArgumentParser:
     reset_count.add_argument("--confirm")
     reset_count.add_argument("--timeout", type=float, default=30)
     reset_count.set_defaults(handler=cmd_reset_count)
+
+    mark_notification_read = subparsers.add_parser(
+        "mark-notification-read",
+        help="Mark a single notification as read; dry-run unless --execute --confirm MARK-NOTIFICATION-READ",
+    )
+    mark_notification_read.add_argument("notification_id", type=int)
+    mark_notification_read.add_argument("--execute", action="store_true")
+    mark_notification_read.add_argument("--confirm")
+    mark_notification_read.add_argument("--timeout", type=float, default=30)
+    mark_notification_read.set_defaults(handler=cmd_mark_notification_read)
 
     render = subparsers.add_parser("render", help="Render a fetch artifact")
     render.add_argument("--input", required=True)

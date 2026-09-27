@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-09-27 Single notification mark-as-read
+
+- 新 mutation `mark-notification-read <notification_id>`：`PATCH /internal_api/notifications/<id>/mark_as_read`，cookie + X-CSRF-Token，200/204 均视为成功。默认 dry-run，live 必须 `--execute --confirm MARK-NOTIFICATION-READ`。URL 由 `notifications_url` 派生，不需要新 config 字段。
+- 已读是服务端状态：`read_at` 落库后该通知从 unread-only fetch 中消失、`count` 下降。在课程页/讨论页读 comment 不会写 `read_at`，只有从 inbox 点开通知或本命令才会。
+- 与 `reset-count`（badge 重置）和未来的 mark-all-read 是三个不同的 mutation；本命令只做单条。
+
 ### 2026-09-27 Threads are always fetched
 
 - `lesson-comments` 去掉 `--with-threads`。对 `replies_count > 0` 的根消息一律再拉一页回复，N+1 是固有成本。JSON 固定为 `roots` + `threads`，不再回退到 `records`，也没有 `with_threads` 字段。
