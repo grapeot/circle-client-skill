@@ -190,6 +190,30 @@ def test_mark_notification_read_executes_patch_with_csrf() -> None:
     assert kwargs["headers"]["X-CSRF-Token"] == "fake-csrf"
 
 
+def test_mark_notification_read_accepts_200_and_strips_trailing_slash() -> None:
+    settings = _mark_read_settings(
+        notifications_url="https://community.example.com/internal_api/notifications/"
+    )
+    session = PatchSession(status_code=200)
+    client = CircleClient(settings, session=session)
+
+    result = client.mark_notification_read(9000001, execute=True)
+
+    assert result["status_code"] == 200
+    url, _ = session.patches[0]
+    assert url == "https://community.example.com/internal_api/notifications/9000001/mark_as_read"
+
+
+def test_mark_notification_read_rejects_non_positive_id() -> None:
+    session = PatchSession()
+    client = CircleClient(_mark_read_settings(), session=session)
+
+    for bad_id in (0, -1):
+        with pytest.raises(ValueError, match="must be positive"):
+            client.mark_notification_read(bad_id, execute=True)
+    assert session.patches == []
+
+
 def test_mark_notification_read_requires_credentials_when_executed() -> None:
     client = CircleClient(_mark_read_settings(csrf_token=None), session=PatchSession())
 

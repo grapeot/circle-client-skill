@@ -762,7 +762,10 @@ class CircleClient:
         }
 
     def mark_notification_read(self, notification_id: int, *, execute: bool = False) -> dict[str, Any]:
-        url = f"{self.settings.notifications_url.rstrip('/')}/{int(notification_id)}/mark_as_read"
+        notification_id = int(notification_id)
+        if notification_id <= 0:
+            raise ValueError("notification_id must be positive")
+        url = f"{self.settings.notifications_url.rstrip('/')}/{notification_id}/mark_as_read"
         preflight = {
             "operation": "mark_notification_read",
             "method": "PATCH",
