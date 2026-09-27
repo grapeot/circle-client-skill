@@ -119,7 +119,7 @@ def test_format_post_card_extracts_tiptap_text() -> None:
     )
     assert "space: General (12)" in output
     assert "replies: 2   likes: 4" in output
-    assert "\nHello world\n" in output
+    assert "Hello \n\nworld" in output
 
 
 def test_format_chat_messages_table_includes_pagination() -> None:

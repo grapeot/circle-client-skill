@@ -1,6 +1,6 @@
 # Circle Client Skill
 
-Circle Client Skill 是一个非官方、local-first 的 Circle 成员客户端。它通过普通成员的浏览器 session（cookie + CSRF）操作 Circle 社区——不需要 Admin API token。支持通知导出、课程 lesson 正文与讨论的只读访问，以及帖子/评论/聊天/图片的完整 CRUD，所有写操作默认 dry-run。聊天消息可以编辑，mention 用服务端签发的 sgid，lesson 讨论可以用 `--focus` 定位单条线程。
+Circle Client Skill 是一个非官方、local-first 的 Circle 成员客户端。它通过普通成员的浏览器 session（cookie + CSRF）操作 Circle 社区——不需要 Admin API token。支持通知导出、课程 lesson 正文与讨论的只读访问，以及帖子/评论/聊天/图片的完整 CRUD，所有写操作默认 dry-run。聊天消息可以编辑，mention 用服务端签发的 sgid。`mention-sgids` 从讨论里聚合被 @ 过的人；lesson 讨论可以用 `--focus` 定位单条线程。
 
 ## 安装
 
@@ -53,7 +53,8 @@ circle-client auth-status
 
 ```bash
 circle-client search-mentions --query member
-circle-client chat-send --room-uuid 00000000-0000-0000-0000-000000000000 --participant-id 9000010 --text "Hello" --mention-sgid FAKE-SGID-0001
+circle-client mention-sgids --room-uuid 00000000-0000-0000-0000-000000000000
+circle-client chat-send --room-uuid 00000000-0000-0000-0000-000000000000 --participant-id 9000010 --text "Hello" --mention-sgid FAKE-SGID-0001 --parent-message-id 9000003
 circle-client update-chat-message --room-uuid 00000000-0000-0000-0000-000000000000 --message-id 9000001 --text "Hello"
 circle-client lesson-comments -s 9000000 --section-id 9000001 --lesson-id 9000002 --with-threads --focus 9000003
 ```

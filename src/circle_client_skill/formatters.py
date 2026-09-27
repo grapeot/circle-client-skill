@@ -4,6 +4,8 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
+from .rich_text import rich_text_paragraphs
+
 
 def _plain(value: Any) -> str:
     if value is None:
@@ -17,14 +19,26 @@ def _plain(value: Any) -> str:
     return str(value)
 
 
+def _has_tiptap_body_document(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    body = value.get("body")
+    return isinstance(body, dict) and (
+        body.get("type") == "doc" or isinstance(body.get("content"), list)
+    )
+
+
 def _body_text(record: dict[str, Any]) -> str:
     for key in ("tiptap_body", "rich_text_body", "body"):
         value = record.get(key)
         if value is None:
             continue
-        if isinstance(value, dict) and "body" in value:
-            value = value["body"]
-        text = _plain(value)
+        if _has_tiptap_body_document(value):
+            paragraphs = rich_text_paragraphs({"rich_text_body": value})
+            if paragraphs:
+                return "\n\n".join(paragraphs)
+        plain_source = value["body"] if isinstance(value, dict) and "body" in value else value
+        text = _plain(plain_source)
         if text:
             return " ".join(text.split())
     return ""
@@ -271,6 +285,32 @@ def format_lesson_card(lesson: dict) -> str:
         lines.append("files: " + ", ".join(attachments))
     lines.extend(["---", text, "---"])
     return "\n".join(lines)
+
+
+def format_mention_sgids_table(mapping: dict) -> str:
+    rows = []
+    for sgid, item in mapping.items():
+        record = item if isinstance(item, dict) else {}
+        shown = str(sgid)
+        if len(shown) > 24:
+            shown = shown[:24] + "…"
+        rows.append(
+            (
+                record.get("name") or "",
+                "" if record.get("community_member_id") is None else record.get("community_member_id"),
+                "" if record.get("user_id") is None else record.get("user_id"),
+                shown,
+            )
+        )
+    return _table(
+        rows,
+        [
+            ("NAME", 40),
+            ("COMMUNITY_MEMBER_ID", None),
+            ("USER_ID", None),
+            ("SGID", None),
+        ],
+    )
 
 
 def format_mentions_table(results: list) -> str:

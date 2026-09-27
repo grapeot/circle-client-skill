@@ -32,6 +32,57 @@ class CircleClientError(RuntimeError):
         self.status_code = status_code
 
 
+def _mention_member_sources(rich: Any) -> list[tuple[str, dict[str, Any]]]:
+    if not isinstance(rich, dict):
+        return []
+    found: list[tuple[str, dict[str, Any]]] = []
+    members = rich.get("community_members")
+    if isinstance(members, list):
+        for member in members:
+            if not isinstance(member, dict):
+                continue
+            sgid = member.get("sgid")
+            if isinstance(sgid, str) and sgid:
+                found.append((sgid, member))
+    object_map = rich.get("sgids_to_object_map")
+    if isinstance(object_map, dict):
+        for sgid, member in object_map.items():
+            if isinstance(sgid, str) and sgid:
+                found.append((sgid, member if isinstance(member, dict) else {}))
+    return found
+
+
+def _absorb_mention_sgid(
+    found: dict[str, dict[str, Any]],
+    sgid: str,
+    member: dict[str, Any],
+    message_id: Any,
+) -> None:
+    name = member.get("name")
+    clean_name = name if isinstance(name, str) and name.strip() else None
+    existing = found.get(sgid)
+    if existing is None:
+        found[sgid] = {
+            "name": clean_name,
+            "community_member_id": member.get("id"),
+            "user_id": member.get("user_id"),
+            "seen_in_message_id": message_id,
+        }
+        return
+    if existing.get("name") is None and clean_name is not None:
+        existing["name"] = clean_name
+    if existing.get("community_member_id") is None and member.get("id") is not None:
+        existing["community_member_id"] = member.get("id")
+    if existing.get("user_id") is None and member.get("user_id") is not None:
+        existing["user_id"] = member.get("user_id")
+
+
+def _absorb_message_mentions(found: dict[str, dict[str, Any]], message: dict[str, Any]) -> None:
+    message_id = message.get("id")
+    for sgid, member in _mention_member_sources(message.get("rich_text_body")):
+        _absorb_mention_sgid(found, sgid, member, message_id)
+
+
 def extract_notifications(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -604,6 +655,55 @@ class CircleClient:
         if not isinstance(result, list):
             raise CircleClientError("Circle mentions search did not return a list")
         return result
+
+    def mention_sgids_in_room(
+        self,
+        chat_room_uuid: str,
+        *,
+        previous_per_page: int = 50,
+        threads_per_page: int = 50,
+        include_threads: bool = True,
+    ) -> dict[str, dict[str, Any]]:
+        """Aggregate sgids of members mentioned in a fetched room window.
+
+        A message carries sgids of people who were mentioned, not the author's
+        own sgid. ``include_threads`` fetches one reply page per root with
+        ``replies_count > 0``, matching ``lesson-comments`` N+1.
+        """
+        page = self.list_chat_messages(
+            chat_room_uuid,
+            previous_per_page=previous_per_page,
+            next_per_page=0,
+        )
+        roots = page.get("records") if isinstance(page, dict) else None
+        if not isinstance(roots, list):
+            roots = []
+        found: dict[str, dict[str, Any]] = {}
+        for root in roots:
+            if not isinstance(root, dict):
+                continue
+            _absorb_message_mentions(found, root)
+            replies_count = root.get("replies_count")
+            if (
+                not include_threads
+                or not isinstance(replies_count, int)
+                or isinstance(replies_count, bool)
+                or replies_count <= 0
+                or root.get("id") is None
+            ):
+                continue
+            replies_page = self.fetch_chat_replies(
+                chat_room_uuid,
+                root["id"],
+                next_per_page=threads_per_page,
+            )
+            replies = replies_page.get("records") if isinstance(replies_page, dict) else None
+            if not isinstance(replies, list):
+                continue
+            for reply in replies:
+                if isinstance(reply, dict):
+                    _absorb_message_mentions(found, reply)
+        return found
 
     # ---- Notifications ----
 

@@ -111,7 +111,9 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 .venv/bin/circle-client reply-post --post-id <id> --text "Reply" --execute --confirm REPLY-POST
 .venv/bin/circle-client upload-image -f <path> --execute --confirm UPLOAD-IMAGE
 .venv/bin/circle-client search-mentions --query member --per-page 20
-.venv/bin/circle-client chat-send --room-uuid 00000000-0000-0000-0000-000000000000 --participant-id 9000010 --text "Hello" --mention-sgid FAKE-SGID-0001 --execute --confirm CHAT-SEND
+.venv/bin/circle-client mention-sgids --room-uuid 00000000-0000-0000-0000-000000000000
+.venv/bin/circle-client mention-sgids -s 9000000 --section-id 9000001 --lesson-id 9000002 --no-threads
+.venv/bin/circle-client chat-send --room-uuid 00000000-0000-0000-0000-000000000000 --participant-id 9000010 --text "Hello" --mention-sgid FAKE-SGID-0001 --parent-message-id 9000003 --execute --confirm CHAT-SEND
 .venv/bin/circle-client chat-send -s 9000000 --section-id 9000001 --lesson-id 9000002 --participant-id 9000010 --text "Hello" --parent-message-id 9000003
 .venv/bin/circle-client update-chat-message --room-uuid 00000000-0000-0000-0000-000000000000 --message-id 9000001 --text "Hello" --mention-sgid FAKE-SGID-0001
 .venv/bin/circle-client update-chat-message --room-uuid 00000000-0000-0000-0000-000000000000 --message-id 9000001 --text "Hello" --execute --confirm UPDATE-CHAT-MESSAGE
@@ -146,7 +148,18 @@ course 类 space 的 lesson 内容是正文加媒体，不是 post。lesson 讨�
 
 ## 编辑消息与 mention
 
-mention 的 sgid 是服务端签名的，不能自己拼。先 `search-mentions --query <name>`，从表格或 `--json` 数组里取 `sgid`，再传给 `chat-send --mention-sgid` 或 `update-chat-message --mention-sgid`（可重复）。只在 `--text` 模式有效；`--tiptap-file` / `--tiptap-json` 是把整个 `rich_text_body` 透传，这时再带 `--mention-sgid` 会直接报错。
+mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `search-mentions --query <name>`，从表格或 `--json` 数组里取 `sgid`。不知道确切名字、但讨论里已经 @ 过对方时，用 `mention-sgids` 从当前 room window 聚合被 mention 过的人。一条消息只带被 mention 者的 sgid，不含作者本人的 sgid；要 @ 作者，得从别的消息或 `search-mentions` 拿。
+
+表格预览会把 mention 显示成 `@Name`。`circle_ios_fallback_text` 会压平段落并丢掉 mention，不要用它当消息正文。
+
+```bash
+.venv/bin/circle-client mention-sgids --room-uuid 00000000-0000-0000-0000-000000000000
+.venv/bin/circle-client chat-send --room-uuid 00000000-0000-0000-0000-000000000000 --participant-id 9000010 --text "Hello" --mention-sgid FAKE-SGID-0001 --parent-message-id 9000003 --execute --confirm CHAT-SEND
+```
+
+默认包含 thread 回复。只要根消息时加 `--no-threads`。当前 window 没有 mention 时，改用 `search-mentions --query <name>`。
+
+拿到 sgid 后传给 `chat-send --mention-sgid` 或 `update-chat-message --mention-sgid`（可重复）。只在 `--text` 模式有效；`--tiptap-file` / `--tiptap-json` 是把整个 `rich_text_body` 透传，这时再带 `--mention-sgid` 会直接报错。
 
 `update-chat-message` 默认 dry-run。live 编辑：
 
@@ -160,7 +173,7 @@ mention 的 sgid 是服务端签名的，不能自己拼。先 `search-mentions 
 - 不打印、总结或写入 tracked 文件中的 JWT、Cookie、CSRF token 或原始 cURL。
 - `.env` 和 `data/` 都是本地私密状态，不能提交。
 - `fetch` 和 `count` 是 GET。
-- `course-lessons`、`course-lesson`、`lesson-comments`、`search-mentions` 都是只读 GET。
+- `course-lessons`、`course-lesson`、`lesson-comments`、`search-mentions`、`mention-sgids` 都是只读 GET。
 - `update-chat-message` 默认 dry-run；live 执行必须同时使用 `--execute --confirm UPDATE-CHAT-MESSAGE`，并获得用户对当次动作的明确授权。
 - `reset-count` 默认 dry-run；live 执行必须同时使用 `--execute --confirm RESET-COUNT`，并获得用户对当次动作的明确授权。
 - `reset-count` 与 mark-all-read 是不同 mutation。当前没有 mark-all-read 能力，不得根据内部 endpoint 名字猜测或代替实现。

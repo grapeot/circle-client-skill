@@ -29,6 +29,7 @@ from .formatters import (
     format_course_lessons,
     format_fetch_summary,
     format_lesson_card,
+    format_mention_sgids_table,
     format_mentions_table,
     format_mutation_dryrun,
     format_mutation_result,
@@ -868,6 +869,25 @@ def cmd_search_mentions(args: argparse.Namespace) -> None:
         print(format_mentions_table(results))
 
 
+def cmd_mention_sgids(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    client = CircleClient(settings, timeout=args.timeout)
+    room_uuid = _resolve_room_uuid(client, args)
+    mapping = client.mention_sgids_in_room(
+        room_uuid,
+        previous_per_page=args.previous_per_page,
+        threads_per_page=args.threads_per_page,
+        include_threads=not args.no_threads,
+    )
+    if args.json:
+        _print_json(mapping)
+        return
+    if not mapping:
+        print("no mentions found in the fetched window; try `search-mentions --query <name>`")
+        return
+    print(format_mention_sgids_table(mapping))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="circle-client",
@@ -1084,6 +1104,42 @@ def build_parser() -> argparse.ArgumentParser:
     search_mentions.add_argument("--per-page", type=int, default=20)
     search_mentions.add_argument("--timeout", type=float, default=30)
     search_mentions.set_defaults(handler=cmd_search_mentions)
+
+    mention_sgids = subparsers.add_parser(
+        "mention-sgids",
+        help=(
+            "Aggregate sgids mentioned in a room, then "
+            "chat-send --mention-sgid <sgid> --parent-message-id <root-id>"
+        ),
+        description=(
+            "Read-only aggregate of members mentioned in the fetched room window. "
+            "A message includes sgids of people who were mentioned, not the author's own sgid. "
+            "Typical flow: mention-sgids to get an sgid, then "
+            "chat-send --mention-sgid <sgid> --parent-message-id <root-id>."
+        ),
+    )
+    mention_sgids_room = mention_sgids.add_mutually_exclusive_group(required=True)
+    mention_sgids_room.add_argument("--room-uuid")
+    mention_sgids_room.add_argument("-s", "--space-id", type=int)
+    mention_sgids.add_argument(
+        "--section-id",
+        type=int,
+        help="With --lesson-id and --space-id, read that lesson's discussion room",
+    )
+    mention_sgids.add_argument(
+        "--lesson-id",
+        type=int,
+        help="With --section-id and --space-id, read that lesson's discussion room",
+    )
+    mention_sgids.add_argument(
+        "--no-threads",
+        action="store_true",
+        help="Skip thread replies; default includes replies for roots with replies_count > 0",
+    )
+    mention_sgids.add_argument("--previous-per-page", type=int, default=50)
+    mention_sgids.add_argument("--threads-per-page", type=int, default=50)
+    mention_sgids.add_argument("--timeout", type=float, default=30)
+    mention_sgids.set_defaults(handler=cmd_mention_sgids)
 
     list_chat = subparsers.add_parser("list-chat-messages", help="List messages in a chat room")
     list_chat_room = list_chat.add_mutually_exclusive_group(required=True)

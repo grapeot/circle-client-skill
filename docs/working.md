@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### 2026-09-27 Paragraph-aware message text and mention-sgids
+
+- `circle_ios_fallback_text` 把所有 tiptap 段落压成一整段，段落间空行丢失。mention 节点没有 `text`，旧 `_plain` 会渲染成空字符串，表格里 @ 直接消失。读消息正文改走 `rich_text_body.body.content`：非空 paragraph 用空行连接，段内 `hardBreak` 保留换行，mention 用同条消息 `community_members` 的 sgid→name 解析成 `@Name`，解析不到用 `@…`。空 paragraph block 是视觉间距，不产生文本。没有可解析段落时，`rich_text_message_text` 才回退到 strip 后的 fallback。表格预览仍由 `_truncate` 压空白，换行不会撑破列对齐；卡片正文保留段落。`format_lesson_card` 仍优先 fallback，未改。
+- 一条消息的 `community_members` / `sgids_to_object_map` 只包含这条消息里被 mention 的人，不含作者本人的 sgid。要 @ 作者，不能从他自己的消息里取 sgid。
+- 新只读命令 `mention-sgids`：从 room 当前 window 的根消息聚合被 mention 过的人（默认再对 `replies_count > 0` 的根拉一页回复，`--no-threads` 跳过）。按 sgid 去重，输出 name / community_member_id / user_id / sgid；name 缺失时后续消息可补全。room 解析与 `update-chat-message` 相同（`--room-uuid`、`--space-id`，或 space + section + lesson）。空 window 提示改用 `search-mentions --query <name>`。
+- 回复并 mention：先 `mention-sgids` 拿 sgid，再 `chat-send --mention-sgid <sgid> --parent-message-id <root-id>`。不知道名字用本命令；知道名字仍用 `search-mentions`。
+
 ### 2026-09-27 Chat message edit, mentions, and lesson comment focus
 
 - 新增 mutation `update-chat-message`（默认 dry-run，live 需 `--execute --confirm UPDATE-CHAT-MESSAGE`）。契约是 `PATCH /internal_api/chat_rooms/{uuid}/messages/{id}`，body 为 `{"chat_room_message": {"rich_text_body": <object>, "attachments": []}}`。服务端从 session 识别作者，**不传** `chat_room_participant_id`。接受 200/202/204（实测 chat mutation 会返回 202）。sgid 是 mention 凭证，绑定当前 session，不是独立 token，但 `--json` 输出仍属敏感数据，不要进公开渠道。
@@ -89,3 +96,4 @@
 - `csrf_token` cookie 可能在页面 reload 后变化；`.env` 里的 CSRF 值需要定期更新。
 - Circle chat 用 cursor-based pagination（`id` + `previous_per_page` + `next_per_page`），不是 page numbers。历史方向以 `first_id` 为 cursor，未来方向以 `last_id` 为 cursor；相邻页含 anchor overlap，必须按 message ID 去重。
 - 编辑聊天消息的 PATCH 不带 participant id；发送的 POST 仍然要带。mention sgid 是服务端签名，`/users/mentions.json` 返回的是 JSON 数组，不是 `{records: ...}` envelope。
+- chat 消息只携带被 mention 者的 sgid，不携带作者 sgid。`circle_ios_fallback_text` 会压平段落并丢掉 mention，读正文要用 `rich_text_body.body.content`。
