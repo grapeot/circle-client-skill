@@ -13,6 +13,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import requests
 
 from .config import CircleSettings
+from .rich_text import build_rich_text_body
 
 
 def _redact_credentials(value: str) -> str:
@@ -29,6 +30,57 @@ class CircleClientError(RuntimeError):
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+def _mention_member_sources(rich: Any) -> list[tuple[str, dict[str, Any]]]:
+    if not isinstance(rich, dict):
+        return []
+    found: list[tuple[str, dict[str, Any]]] = []
+    members = rich.get("community_members")
+    if isinstance(members, list):
+        for member in members:
+            if not isinstance(member, dict):
+                continue
+            sgid = member.get("sgid")
+            if isinstance(sgid, str) and sgid:
+                found.append((sgid, member))
+    object_map = rich.get("sgids_to_object_map")
+    if isinstance(object_map, dict):
+        for sgid, member in object_map.items():
+            if isinstance(sgid, str) and sgid:
+                found.append((sgid, member if isinstance(member, dict) else {}))
+    return found
+
+
+def _absorb_mention_sgid(
+    found: dict[str, dict[str, Any]],
+    sgid: str,
+    member: dict[str, Any],
+    message_id: Any,
+) -> None:
+    name = member.get("name")
+    clean_name = name if isinstance(name, str) and name.strip() else None
+    existing = found.get(sgid)
+    if existing is None:
+        found[sgid] = {
+            "name": clean_name,
+            "community_member_id": member.get("id"),
+            "user_id": member.get("user_id"),
+            "seen_in_message_id": message_id,
+        }
+        return
+    if existing.get("name") is None and clean_name is not None:
+        existing["name"] = clean_name
+    if existing.get("community_member_id") is None and member.get("id") is not None:
+        existing["community_member_id"] = member.get("id")
+    if existing.get("user_id") is None and member.get("user_id") is not None:
+        existing["user_id"] = member.get("user_id")
+
+
+def _absorb_message_mentions(found: dict[str, dict[str, Any]], message: dict[str, Any]) -> None:
+    message_id = message.get("id")
+    for sgid, member in _mention_member_sources(message.get("rich_text_body")):
+        _absorb_mention_sgid(found, sgid, member, message_id)
 
 
 def extract_notifications(payload: Any) -> list[dict[str, Any]]:
@@ -179,6 +231,20 @@ class CircleClient:
     def list_space_topics(self, space_id: int) -> dict[str, Any]:
         """List topics (tags) for a space."""
         return self._request("GET", f"{self.settings.base_url}/internal_api/spaces/{space_id}/topics")
+
+    # ---- Course ----
+
+    def get_course_lesson(self, space_id: int, section_id: int, lesson_id: int) -> dict[str, Any]:
+        """Get one course lesson (content, completion state, discussion room UUID).
+
+        Course lesson lookup requires the sectioned path; the section-less
+        variant is not part of the member-session contract.
+        """
+        return self._request(
+            "GET",
+            f"{self.settings.base_url}/internal_api/courses/{space_id}"
+            f"/sections/{section_id}/lessons/{lesson_id}",
+        )
 
     # ---- Posts ----
 
@@ -527,23 +593,17 @@ class CircleClient:
         chat_room_participant_id: int,
         text: str,
         parent_message_id: int | None = None,
+        mention_sgids: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Send a message to a chat room. If parent_message_id is set, creates a thread reply."""
-        body = {
+        """Send a message to a chat room. If parent_message_id is set, creates a thread reply.
+
+        ``mention_sgids=None`` keeps the pre-mention rich_text_body. Sgids must
+        come from ``search_mentions`` or an existing message; they are not built here.
+        """
+        body: dict[str, Any] = {
             "chat_room_message": {
                 "chat_room_participant_id": chat_room_participant_id,
-                "rich_text_body": {
-                    "body": {
-                        "type": "doc",
-                        "content": [
-                            {
-                                "type": "paragraph",
-                                "content": [{"type": "text", "text": text}],
-                            }
-                        ],
-                    },
-                    "attachments": [],
-                },
+                "rich_text_body": build_rich_text_body(text, mention_sgids),
                 "unfurl_urls": {},
             }
         }
@@ -556,6 +616,92 @@ class CircleClient:
             mutation=True,
             accept_statuses=(200, 202),
         )
+
+    def update_chat_message(
+        self,
+        chat_room_uuid: str,
+        message_id: int,
+        *,
+        rich_text_body: dict[str, Any],
+    ) -> Any:
+        """Replace a chat message body.
+
+        The session identifies the author, so the body has no participant id.
+        """
+        return self._request(
+            "PATCH",
+            f"{self.settings.base_url}/internal_api/chat_rooms/{chat_room_uuid}/messages/{message_id}",
+            json_body={
+                "chat_room_message": {
+                    "rich_text_body": rich_text_body,
+                    "attachments": [],
+                }
+            },
+            mutation=True,
+            accept_statuses=(200, 202, 204),
+        )
+
+    def search_mentions(self, query: str, *, per_page: int = 20) -> list[Any]:
+        """Search mentionable members.
+
+        ``GET /users/mentions.json`` returns a JSON array (not an ``internal_api``
+        envelope). Each item includes ``id``, ``just_name``, and a server-signed ``sgid``.
+        """
+        result = self._request(
+            "GET",
+            f"{self.settings.base_url}/users/mentions.json",
+            params={"query": query, "per_page": str(per_page)},
+        )
+        if not isinstance(result, list):
+            raise CircleClientError("Circle mentions search did not return a list")
+        return result
+
+    def mention_sgids_in_room(
+        self,
+        chat_room_uuid: str,
+        *,
+        previous_per_page: int = 50,
+        threads_per_page: int = 50,
+    ) -> dict[str, dict[str, Any]]:
+        """Aggregate sgids of members mentioned in a fetched room window.
+
+        A message carries sgids of people who were mentioned, not the author's
+        own sgid. Fetches one reply page per root with ``replies_count > 0``,
+        matching ``lesson-comments`` N+1.
+        """
+        page = self.list_chat_messages(
+            chat_room_uuid,
+            previous_per_page=previous_per_page,
+            next_per_page=0,
+        )
+        roots = page.get("records") if isinstance(page, dict) else None
+        if not isinstance(roots, list):
+            roots = []
+        found: dict[str, dict[str, Any]] = {}
+        for root in roots:
+            if not isinstance(root, dict):
+                continue
+            _absorb_message_mentions(found, root)
+            replies_count = root.get("replies_count")
+            if (
+                not isinstance(replies_count, int)
+                or isinstance(replies_count, bool)
+                or replies_count <= 0
+                or root.get("id") is None
+            ):
+                continue
+            replies_page = self.fetch_chat_replies(
+                chat_room_uuid,
+                root["id"],
+                next_per_page=threads_per_page,
+            )
+            replies = replies_page.get("records") if isinstance(replies_page, dict) else None
+            if not isinstance(replies, list):
+                continue
+            for reply in replies:
+                if isinstance(reply, dict):
+                    _absorb_message_mentions(found, reply)
+        return found
 
     # ---- Notifications ----
 

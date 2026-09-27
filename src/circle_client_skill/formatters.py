@@ -4,6 +4,8 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
+from .rich_text import rich_text_paragraphs
+
 
 def _plain(value: Any) -> str:
     if value is None:
@@ -17,14 +19,26 @@ def _plain(value: Any) -> str:
     return str(value)
 
 
+def _has_tiptap_body_document(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    body = value.get("body")
+    return isinstance(body, dict) and (
+        body.get("type") == "doc" or isinstance(body.get("content"), list)
+    )
+
+
 def _body_text(record: dict[str, Any]) -> str:
     for key in ("tiptap_body", "rich_text_body", "body"):
         value = record.get(key)
         if value is None:
             continue
-        if isinstance(value, dict) and "body" in value:
-            value = value["body"]
-        text = _plain(value)
+        if _has_tiptap_body_document(value):
+            paragraphs = rich_text_paragraphs({"rich_text_body": value})
+            if paragraphs:
+                return "\n\n".join(paragraphs)
+        plain_source = value["body"] if isinstance(value, dict) and "body" in value else value
+        text = _plain(plain_source)
         if text:
             return " ".join(text.split())
     return ""
@@ -207,6 +221,128 @@ def format_chat_messages_table(messages: list, pagination: dict) -> str:
     return f"{summary}\n{table}"
 
 
+def format_course_lessons(sections: list) -> str:
+    rows = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        for lesson in section.get("lessons") or []:
+            if not isinstance(lesson, dict):
+                continue
+            rows.append(
+                (
+                    section.get("id"),
+                    lesson.get("id"),
+                    lesson.get("name"),
+                    str(lesson.get("content_kind") or ""),
+                    "yes" if lesson.get("completed") else "no",
+                    "yes" if section.get("is_dripped") else "no",
+                )
+            )
+    return _table(
+        rows,
+        [
+            ("SECTION", None),
+            ("LESSON", None),
+            ("NAME", 60),
+            ("KIND", 8),
+            ("DONE", 4),
+            ("DRIP", 4),
+        ],
+    )
+
+
+def _lesson_body(lesson: dict[str, Any]) -> dict[str, Any]:
+    for key in ("rich_text_body", "serialized_rich_text_body"):
+        value = lesson.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def format_lesson_card(lesson: dict) -> str:
+    body = _lesson_body(lesson)
+    text = str(body.get("circle_ios_fallback_text") or "").strip() or _body_text(lesson)
+    attachments = [
+        str(item.get("filename", ""))
+        for item in body.get("attachments") or []
+        if isinstance(item, dict) and item.get("filename")
+    ]
+    lines = [
+        f"# {lesson.get('name', '')}  (id={lesson.get('id', '')})",
+        (
+            f"status: {lesson.get('status', '')}   "
+            f"completed: {str(bool(lesson.get('completed'))).lower()}   "
+            f"dripped: {str(bool(lesson.get('is_dripped'))).lower()}"
+        ),
+        (
+            f"featured_media: {str(bool(lesson.get('featured_media_enabled'))).lower()}   "
+            f"comments_enabled: {str(bool(lesson.get('comments_enabled'))).lower()}"
+        ),
+        f"chat_room_uuid: {lesson.get('chat_room_uuid', '')}",
+    ]
+    if attachments:
+        lines.append("files: " + ", ".join(attachments))
+    lines.extend(["---", text, "---"])
+    return "\n".join(lines)
+
+
+def format_mention_sgids_table(mapping: dict) -> str:
+    rows = []
+    for sgid, item in mapping.items():
+        record = item if isinstance(item, dict) else {}
+        shown = str(sgid)
+        if len(shown) > 24:
+            shown = shown[:24] + "…"
+        rows.append(
+            (
+                record.get("name") or "",
+                "" if record.get("community_member_id") is None else record.get("community_member_id"),
+                "" if record.get("user_id") is None else record.get("user_id"),
+                shown,
+            )
+        )
+    return _table(
+        rows,
+        [
+            ("NAME", 40),
+            ("COMMUNITY_MEMBER_ID", None),
+            ("USER_ID", None),
+            ("SGID", None),
+        ],
+    )
+
+
+def format_mentions_table(results: list) -> str:
+    rows = []
+    for item in results:
+        record = item if isinstance(item, dict) else {}
+        sgid = str(record.get("sgid") or "")
+        if len(sgid) > 24:
+            sgid = sgid[:24] + "…"
+        rows.append((record.get("just_name", ""), record.get("id", ""), sgid))
+    return _table(
+        rows,
+        [
+            ("NAME", 40),
+            ("USER_ID", None),
+            ("SGID", None),
+        ],
+    )
+
+
+def format_comment_threads(threads: dict) -> str:
+    parts = []
+    for root_id, replies in threads.items():
+        if not replies:
+            continue
+        parts.append(
+            f"thread {root_id}  ({len(replies)} replies)\n"
+            f"{format_chat_messages_table(replies, {})}"
+        )
+    return "\n\n".join(parts)
+
+
 def format_count(count: int) -> str:
     return str(count)
 
@@ -273,6 +409,13 @@ def format_mutation_result(result: dict, operation: str) -> str:
         message = result.get("message", result)
         room = result.get("chat_room_uuid", "")
         return f"OK: sent chat message (creation_uuid={message.get('creation_uuid', '')}) to room {room}"
+    if operation == "update-chat-message":
+        message = result.get("message")
+        message_id = result.get("message_id", "")
+        if not message_id and isinstance(message, dict):
+            message_id = message.get("id", "")
+        room = result.get("chat_room_uuid", "")
+        return f"OK: updated chat message #{message_id} in room {room}"
     if operation == "reset-count":
         return "OK: reset notification count"
     return f"OK: {operation}"

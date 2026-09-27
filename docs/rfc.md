@@ -56,7 +56,9 @@ V1 的帖子、聊天和图片能力来自浏览器 ajax 逆向，不是官方�
 | 上传图片 | POST | `/internal_api/direct_uploads` | `{"blob":{filename, byte_size, checksum, content_type, metadata}}` | cookie+CSRF |
 | 图片上传第二步 | PUT | `<direct_upload.url>` (S3) | raw file bytes | direct_upload headers |
 | 列聊天消息 | GET | `/internal_api/chat_rooms/{uuid}/messages` | — | cookie |
-| 发聊天消息 | POST | `/internal_api/chat_rooms/{uuid}/messages` | `{"chat_room_message":{chat_room_participant_id, rich_text_body, [parent_message_id], unfurl_urls}}` | cookie+CSRF |
+| 发聊天消息 | POST | `/internal_api/chat_rooms/{uuid}/messages` | `{"chat_room_message":{chat_room_participant_id, rich_text_body, [parent_message_id], unfurl_urls}}`。`rich_text_body` 可含服务端签发的 mention 节点 | cookie+CSRF |
+| 编辑聊天消息 | PATCH | `/internal_api/chat_rooms/{uuid}/messages/{id}` | `{"chat_room_message":{rich_text_body, attachments}}`。无 participant id | cookie+CSRF |
+| 搜索 mention | GET | `/users/mentions.json?query=&per_page=` | —。响应是 JSON 数组，不是 `/internal_api/` envelope | cookie |
 | 读取 thread 回复 | GET | `/internal_api/chat_rooms/{uuid}/messages?parent_message_id={id}` | — | cookie |
 
 ### 鉴权机制
