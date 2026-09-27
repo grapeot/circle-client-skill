@@ -761,6 +761,47 @@ class CircleClient:
             "status_code": response.status_code,
         }
 
+    def mark_notification_read(self, notification_id: int, *, execute: bool = False) -> dict[str, Any]:
+        notification_id = int(notification_id)
+        if notification_id <= 0:
+            raise ValueError("notification_id must be positive")
+        url = f"{self.settings.notifications_url.rstrip('/')}/{notification_id}/mark_as_read"
+        preflight = {
+            "operation": "mark_notification_read",
+            "method": "PATCH",
+            "url": url,
+            "notification_id": int(notification_id),
+            "csrf_present": bool(self.settings.csrf_token),
+            "cookie_present": bool(self.settings.cookie),
+        }
+        if not execute:
+            return {"success": True, "dry_run": True, **preflight}
+        if not self.settings.csrf_token or not self.settings.cookie:
+            raise CircleClientError(
+                "mark-notification-read requires a current browser Cookie and X-CSRF-Token"
+            )
+        try:
+            response = self.session.patch(
+                url,
+                headers=self.settings.headers(mutation=True),
+                timeout=self.timeout,
+            )
+        except requests.RequestException as exc:
+            raise CircleClientError(f"Circle request failed: {type(exc).__name__}") from exc
+        if response.status_code not in (200, 204):
+            request_id = response.headers.get("cf-ray") or response.headers.get("x-request-id")
+            suffix = f"; request_id={request_id}" if request_id else ""
+            raise CircleClientError(
+                f"Circle returned HTTP {response.status_code}{suffix}",
+                status_code=response.status_code,
+            )
+        return {
+            "success": True,
+            "dry_run": False,
+            **preflight,
+            "status_code": response.status_code,
+        }
+
     def fetch_notifications(
         self,
         *,

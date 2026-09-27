@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from circle_client_skill.client import CircleClient
+import pytest
+
+from circle_client_skill.client import CircleClient, CircleClientError
 from circle_client_skill.config import CircleSettings
 
 
@@ -133,3 +135,96 @@ def test_reset_count_is_dry_run_by_default_and_posts_only_when_executed() -> Non
     result = client.reset_notification_count(execute=True)
     assert result["dry_run"] is False
     assert session.posts == 1
+
+
+def _mark_read_settings(**overrides: Any) -> CircleSettings:
+    base: dict[str, Any] = {
+        "notifications_url": "https://community.example.com/internal_api/notifications",
+        "count_url": "https://community.example.com/internal_api/notifications/new_notifications_count",
+        "reset_count_url": "https://community.example.com/internal_api/notifications/mark_all_as_read",
+        "authorization": "Bearer fake",
+        "cookie": "session=fake",
+        "csrf_token": "fake-csrf",
+        "origin": "https://community.example.com",
+    }
+    base.update(overrides)
+    return CircleSettings(**base)
+
+
+class PatchSession:
+    def __init__(self, status_code: int = 204) -> None:
+        self.status_code = status_code
+        self.patches: list[tuple[str, dict[str, Any]]] = []
+
+    def patch(self, url: str, **kwargs: Any) -> FakeResponse:
+        self.patches.append((url, kwargs))
+        response = FakeResponse({"success": True})
+        response.status_code = self.status_code
+        return response
+
+
+def test_mark_notification_read_is_dry_run_by_default() -> None:
+    session = PatchSession()
+    client = CircleClient(_mark_read_settings(), session=session)
+
+    preflight = client.mark_notification_read(9000001)
+
+    assert preflight["dry_run"] is True
+    assert preflight["method"] == "PATCH"
+    assert preflight["url"].endswith("/9000001/mark_as_read")
+    assert preflight["notification_id"] == 9000001
+    assert session.patches == []
+
+
+def test_mark_notification_read_executes_patch_with_csrf() -> None:
+    session = PatchSession()
+    client = CircleClient(_mark_read_settings(), session=session)
+
+    result = client.mark_notification_read(9000001, execute=True)
+
+    assert result["dry_run"] is False
+    assert result["status_code"] == 204
+    assert len(session.patches) == 1
+    url, kwargs = session.patches[0]
+    assert url == "https://community.example.com/internal_api/notifications/9000001/mark_as_read"
+    assert kwargs["headers"]["X-CSRF-Token"] == "fake-csrf"
+
+
+def test_mark_notification_read_accepts_200_and_strips_trailing_slash() -> None:
+    settings = _mark_read_settings(
+        notifications_url="https://community.example.com/internal_api/notifications/"
+    )
+    session = PatchSession(status_code=200)
+    client = CircleClient(settings, session=session)
+
+    result = client.mark_notification_read(9000001, execute=True)
+
+    assert result["status_code"] == 200
+    url, _ = session.patches[0]
+    assert url == "https://community.example.com/internal_api/notifications/9000001/mark_as_read"
+
+
+def test_mark_notification_read_rejects_non_positive_id() -> None:
+    session = PatchSession()
+    client = CircleClient(_mark_read_settings(), session=session)
+
+    for bad_id in (0, -1):
+        with pytest.raises(ValueError, match="must be positive"):
+            client.mark_notification_read(bad_id, execute=True)
+    assert session.patches == []
+
+
+def test_mark_notification_read_requires_credentials_when_executed() -> None:
+    client = CircleClient(_mark_read_settings(csrf_token=None), session=PatchSession())
+
+    with pytest.raises(CircleClientError, match="Cookie and X-CSRF-Token"):
+        client.mark_notification_read(9000001, execute=True)
+
+
+def test_mark_notification_read_raises_on_non_success_status() -> None:
+    session = PatchSession(status_code=422)
+    client = CircleClient(_mark_read_settings(), session=session)
+
+    with pytest.raises(CircleClientError) as excinfo:
+        client.mark_notification_read(9000001, execute=True)
+    assert excinfo.value.status_code == 422

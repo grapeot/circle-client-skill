@@ -28,7 +28,7 @@ uv pip install -e '.[dev]'
 - `.env`、浏览器 cURL、原始通知、渲染后的私人通知和 live test 输出不得提交。
 - cURL importer 只能解析文本，绝不能执行用户提供的 shell 命令。
 - 发送认证信息前必须验证 HTTPS 和 `/internal_api/notifications` 路径。
-- 默认能力保持只读。`reset-count` 必须 dry-run first，并要求用户对该次 live mutation 明确授权；mark-all-read 尚未实现。
+- 默认能力保持只读。所有 mutation 命令（reset-count、mark-notification-read 及 post/chat 写操作）必须 dry-run first，live 执行需同时 `--execute --confirm <ACTION>` 且用户对该次动作明确授权；mark-all-read 尚未实现（`mark-notification-read` 只做单条）。
 - 所有输出和错误必须遮罩 Authorization、Cookie 与 CSRF 等凭证。
 - Circle internal API 没有稳定公开 contract。保留底层 HTTP status 和脱敏错误，但不要把响应中的私人通知全文打印到错误信息。
 - 行为、CLI contract 或安全边界变化后更新 `docs/working.md`。

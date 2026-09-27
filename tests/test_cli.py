@@ -203,3 +203,37 @@ def test_list_chat_messages_renders_newest_first(monkeypatch, capsys) -> None:
     # Pagination cursors stay anchored to the ascending API page.
     assert output["first_id"] == 1
     assert output["last_id"] == 2
+
+
+def test_mark_notification_read_parser_and_dry_run(monkeypatch, capsys) -> None:
+    class GuardClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def mark_notification_read(self, notification_id, *, execute=False):
+            assert execute is False
+            return {
+                "success": True,
+                "dry_run": True,
+                "operation": "mark_notification_read",
+                "method": "PATCH",
+                "url": f"https://community.example.com/internal_api/notifications/{notification_id}/mark_as_read",
+                "notification_id": notification_id,
+                "csrf_present": True,
+                "cookie_present": True,
+            }
+
+    monkeypatch.setattr(cli, "load_settings", lambda _path: argparse.Namespace(csrf_token="fake-csrf"))
+    monkeypatch.setattr(cli, "CircleClient", GuardClient)
+    parser = cli.build_parser()
+    args = parser.parse_args(["mark-notification-read", "9000001", "--json"])
+    assert args.handler is cli.cmd_mark_notification_read
+    cli.cmd_mark_notification_read(args)
+    output = json.loads(capsys.readouterr().out)
+    assert output["dry_run"] is True
+    assert output["notification_id"] == 9000001
+    assert output["url"].endswith("/9000001/mark_as_read")
+
+    positioned = parser.parse_args(["mark-notification-read", "9000002", "--env-file", ".env"])
+    assert positioned.notification_id == 9000002
+    assert positioned.env_file == ".env"

@@ -418,6 +418,8 @@ def format_mutation_result(result: dict, operation: str) -> str:
         return f"OK: updated chat message #{message_id} in room {room}"
     if operation == "reset-count":
         return "OK: reset notification count"
+    if operation == "mark-notification-read":
+        return f"OK: marked notification {result.get('notification_id', '')} as read"
     return f"OK: {operation}"
 
 

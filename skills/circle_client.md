@@ -94,6 +94,7 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 .venv/bin/circle-client auth-status
 .venv/bin/circle-client count
 .venv/bin/circle-client reset-count
+.venv/bin/circle-client mark-notification-read <notification_id>
 .venv/bin/circle-client fetch --group inbox --per-page 100 --output data/notifications.json
 .venv/bin/circle-client render --input data/notifications.json --format md --output data/notifications.md
 .venv/bin/circle-client render --input data/notifications.json --format csv --output data/notifications.csv
@@ -130,7 +131,7 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 
 `fetch` 默认在连续 100 条已读记录后停止。用户明确要求完整历史审计时才使用 `--stop-after-consecutive-read 0`。
 
-所有 mutation 命令（create-post、update-post、delete-post、reply-post、upload-image、chat-send、update-chat-message、reset-count）默认 dry-run。只给 `--room-uuid` 时 preflight 不发请求；用 `--space-id` 或 lesson id 解析 room 时会先发只读 GET。Live 执行需同时提供 `--execute --confirm <ACTION>`，且用户当次明确授权。
+所有 mutation 命令（create-post、update-post、delete-post、reply-post、upload-image、chat-send、update-chat-message、reset-count、mark-notification-read）默认 dry-run。只给 `--room-uuid` 时 preflight 不发请求；用 `--space-id` 或 lesson id 解析 room 时会先发只读 GET。Live 执行需同时提供 `--execute --confirm <ACTION>`，且用户当次明确授权。
 
 ## 课程内容与 lesson comments
 
@@ -176,7 +177,8 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 - `course-lessons`、`course-lesson`、`lesson-comments`、`search-mentions`、`mention-sgids` 都是只读 GET。
 - `update-chat-message` 默认 dry-run；live 执行必须同时使用 `--execute --confirm UPDATE-CHAT-MESSAGE`，并获得用户对当次动作的明确授权。
 - `reset-count` 默认 dry-run；live 执行必须同时使用 `--execute --confirm RESET-COUNT`，并获得用户对当次动作的明确授权。
-- `reset-count` 与 mark-all-read 是不同 mutation。当前没有 mark-all-read 能力，不得根据内部 endpoint 名字猜测或代替实现。
+- `mark-notification-read <id>` 把单条通知标记已读（`PATCH /internal_api/notifications/<id>/mark_as_read`，cookie+CSRF，200/204 均视为成功）；默认 dry-run，live 必须 `--execute --confirm MARK-NOTIFICATION-READ` 且当次授权。已读是服务端状态：`read_at` 落库后该通知从 unread fetch 中消失、`count` 下降；只读 comment 页面不会写 `read_at`，只有 inbox 里点开通知或本命令才会。
+- `reset-count` 与 mark-all-read 是不同 mutation。当前没有 mark-all-read 能力（`mark-notification-read` 是单条，不是 mark-all），不得根据内部 endpoint 名字猜测或代替实现。
 
 ## 输出与 AI Filter
 
