@@ -212,7 +212,6 @@ def test_lesson_comments_resolves_room_newest_first_and_threads(monkeypatch, cap
         direction="previous",
         previous_per_page=20,
         next_per_page=0,
-        with_threads=True,
         threads_per_page=50,
         json=True,
     )
@@ -267,7 +266,6 @@ def test_lesson_comments_truncates_when_server_ignores_per_page(monkeypatch, cap
         direction="previous",
         previous_per_page=2,
         next_per_page=0,
-        with_threads=False,
         threads_per_page=50,
         json=True,
     )
@@ -275,10 +273,13 @@ def test_lesson_comments_truncates_when_server_ignores_per_page(monkeypatch, cap
     cli.cmd_lesson_comments(args)
 
     output = json.loads(capsys.readouterr().out)
-    assert [root["id"] for root in output["records"]] == [5, 4]
+    assert [root["id"] for root in output["roots"]] == [5, 4]
+    assert output["threads"] == {}
+    assert "with_threads" not in output
+    assert "records" not in output
 
 
-def test_lesson_comments_without_threads_makes_single_request(monkeypatch, capsys) -> None:
+def test_lesson_comments_always_fetches_reply_page_when_replies_exist(monkeypatch, capsys) -> None:
     calls: dict[str, int] = {}
 
     class FakeClient:
@@ -295,6 +296,10 @@ def test_lesson_comments_without_threads_makes_single_request(monkeypatch, capsy
                 "records": [{"id": 10, "created_at": "2026-01-01T00:00:00Z", "body": "only", "replies_count": 3}],
             }
 
+        def fetch_chat_replies(self, room_uuid: str, parent_message_id: int, **_: Any) -> dict:
+            calls["replies"] = parent_message_id
+            return {"records": [{"id": 101, "body": "r"}]}
+
     monkeypatch.setattr(cli, "load_settings", lambda _path: object())
     monkeypatch.setattr(cli, "CircleClient", FakeClient)
     args = argparse.Namespace(
@@ -307,16 +312,17 @@ def test_lesson_comments_without_threads_makes_single_request(monkeypatch, capsy
         direction="previous",
         previous_per_page=20,
         next_per_page=0,
-        with_threads=False,
         threads_per_page=50,
         json=True,
     )
 
     cli.cmd_lesson_comments(args)
 
-    assert calls == {"lesson": 1, "messages": 1}
+    assert calls == {"lesson": 1, "messages": 1, "replies": 10}
     output = json.loads(capsys.readouterr().out)
-    assert "threads" not in output
+    assert "with_threads" not in output
+    assert "records" not in output
+    assert list(output["threads"]) == ["10"]
 
 
 def test_lesson_comments_rejects_lesson_without_room(monkeypatch) -> None:
@@ -338,7 +344,6 @@ def test_lesson_comments_rejects_lesson_without_room(monkeypatch) -> None:
         direction="previous",
         previous_per_page=20,
         next_per_page=0,
-        with_threads=False,
         threads_per_page=50,
         json=True,
     )
@@ -364,7 +369,7 @@ def test_course_parser_defaults() -> None:
     assert comments.direction == "previous"
     assert comments.previous_per_page == 20
     assert comments.next_per_page == 0
-    assert comments.with_threads is False
+    assert not hasattr(comments, "with_threads")
     assert comments.focus is None
     assert comments.json is True
 
@@ -380,7 +385,6 @@ def _lesson_comment_args(**overrides: Any) -> argparse.Namespace:
         "direction": "previous",
         "previous_per_page": 20,
         "next_per_page": 0,
-        "with_threads": False,
         "threads_per_page": 50,
         "focus": None,
         "json": True,
@@ -424,17 +428,18 @@ def test_lesson_comments_focus_keeps_matching_root(monkeypatch, capsys) -> None:
     cli.cmd_lesson_comments(_lesson_comment_args(focus=20))
 
     output = json.loads(capsys.readouterr().out)
-    assert [record["id"] for record in output["records"]] == [20]
-    assert "threads" not in output
+    assert [root["id"] for root in output["roots"]] == [20]
+    assert output["threads"] == {}
+    assert "with_threads" not in output
     assert reply_calls == []
 
 
-def test_lesson_comments_focus_root_with_threads_fetches_only_that_thread(monkeypatch, capsys) -> None:
+def test_lesson_comments_focus_root_fetches_only_that_thread(monkeypatch, capsys) -> None:
     reply_calls: list[int] = []
     monkeypatch.setattr(cli, "load_settings", lambda _path: object())
     monkeypatch.setattr(cli, "CircleClient", _focus_client(reply_calls))
 
-    cli.cmd_lesson_comments(_lesson_comment_args(focus=10, with_threads=True))
+    cli.cmd_lesson_comments(_lesson_comment_args(focus=10))
 
     output = json.loads(capsys.readouterr().out)
     assert [root["id"] for root in output["roots"]] == [10]
@@ -448,7 +453,7 @@ def test_lesson_comments_focus_matches_fetched_reply(monkeypatch, capsys) -> Non
     monkeypatch.setattr(cli, "load_settings", lambda _path: object())
     monkeypatch.setattr(cli, "CircleClient", _focus_client(reply_calls))
 
-    cli.cmd_lesson_comments(_lesson_comment_args(focus=101, with_threads=True))
+    cli.cmd_lesson_comments(_lesson_comment_args(focus=101))
 
     output = json.loads(capsys.readouterr().out)
     assert [root["id"] for root in output["roots"]] == [10]
@@ -456,17 +461,8 @@ def test_lesson_comments_focus_matches_fetched_reply(monkeypatch, capsys) -> Non
     assert reply_calls == [10]
 
 
-def test_lesson_comments_focus_miss_requires_threads(monkeypatch) -> None:
-    reply_calls: list[int] = []
-    monkeypatch.setattr(cli, "load_settings", lambda _path: object())
-    monkeypatch.setattr(cli, "CircleClient", _focus_client(reply_calls))
-    with pytest.raises(ValueError, match="not found among fetched roots"):
-        cli.cmd_lesson_comments(_lesson_comment_args(focus=101))
-    assert reply_calls == []
-
-
 def test_lesson_comments_focus_miss_in_replies(monkeypatch) -> None:
     monkeypatch.setattr(cli, "load_settings", lambda _path: object())
     monkeypatch.setattr(cli, "CircleClient", _focus_client([]))
     with pytest.raises(ValueError, match="not found among roots or fetched replies"):
-        cli.cmd_lesson_comments(_lesson_comment_args(focus=9000099, with_threads=True))
+        cli.cmd_lesson_comments(_lesson_comment_args(focus=9000099))

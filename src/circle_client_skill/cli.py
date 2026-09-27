@@ -762,25 +762,6 @@ def cmd_lesson_comments(args: argparse.Namespace) -> None:
         matched = [root for root in roots if root.get("id") == focus]
         if matched:
             roots = matched
-        elif not args.with_threads:
-            raise ValueError(
-                f"message {focus} not found among fetched roots; "
-                "pass --with-threads to search inside replies"
-            )
-    if not args.with_threads:
-        result = {**result, "records": roots}
-        if args.json:
-            _print_json(
-                {
-                    "success": True,
-                    "lesson_id": args.lesson_id,
-                    "chat_room_uuid": room_uuid,
-                    **result,
-                }
-            )
-        else:
-            print(format_chat_messages_table(roots, result))
-        return
     threads: dict[int, list] = {}
     for root in roots:
         if not root.get("replies_count"):
@@ -877,7 +858,6 @@ def cmd_mention_sgids(args: argparse.Namespace) -> None:
         room_uuid,
         previous_per_page=args.previous_per_page,
         threads_per_page=args.threads_per_page,
-        include_threads=not args.no_threads,
     )
     if args.json:
         _print_json(mapping)
@@ -1115,7 +1095,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Read-only aggregate of members mentioned in the fetched room window. "
             "A message includes sgids of people who were mentioned, not the author's own sgid. "
             "Typical flow: mention-sgids to get an sgid, then "
-            "chat-send --mention-sgid <sgid> --parent-message-id <root-id>."
+            "chat-send --mention-sgid <sgid> --parent-message-id <root-id>. "
+            "Includes one reply page per root with replies_count > 0."
         ),
     )
     mention_sgids_room = mention_sgids.add_mutually_exclusive_group(required=True)
@@ -1130,11 +1111,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--lesson-id",
         type=int,
         help="With --section-id and --space-id, read that lesson's discussion room",
-    )
-    mention_sgids.add_argument(
-        "--no-threads",
-        action="store_true",
-        help="Skip thread replies; default includes replies for roots with replies_count > 0",
     )
     mention_sgids.add_argument("--previous-per-page", type=int, default=50)
     mention_sgids.add_argument("--threads-per-page", type=int, default=50)
@@ -1199,17 +1175,12 @@ def build_parser() -> argparse.ArgumentParser:
     lesson_comments.add_argument("--direction", choices=("previous", "next"), default="previous")
     lesson_comments.add_argument("--previous-per-page", type=int, default=20, help="Number of older messages to fetch")
     lesson_comments.add_argument("--next-per-page", type=int, default=0, help="Number of newer messages to fetch")
-    lesson_comments.add_argument(
-        "--with-threads",
-        action="store_true",
-        help="Fetch one page of replies for each root with replies_count > 0 (N+1, opt-in)",
-    )
     lesson_comments.add_argument("--threads-per-page", type=int, default=50)
     lesson_comments.add_argument(
         "--focus",
         type=int,
         default=None,
-        help="只输出包含该消息的线程（root id 命中；配 --with-threads 时 replies 命中也算）",  # noqa: RUF001
+        help="只输出包含该消息的线程（root id 或已抓回复命中都算）",  # noqa: RUF001
     )
     lesson_comments.add_argument("--timeout", type=float, default=30)
     lesson_comments.set_defaults(handler=cmd_lesson_comments)

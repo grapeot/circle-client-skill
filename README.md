@@ -56,7 +56,7 @@ circle-client search-mentions --query member
 circle-client mention-sgids --room-uuid 00000000-0000-0000-0000-000000000000
 circle-client chat-send --room-uuid 00000000-0000-0000-0000-000000000000 --participant-id 9000010 --text "Hello" --mention-sgid FAKE-SGID-0001 --parent-message-id 9000003
 circle-client update-chat-message --room-uuid 00000000-0000-0000-0000-000000000000 --message-id 9000001 --text "Hello"
-circle-client lesson-comments -s 9000000 --section-id 9000001 --lesson-id 9000002 --with-threads --focus 9000003
+circle-client lesson-comments -s 9000000 --section-id 9000001 --lesson-id 9000002 --focus 9000003
 ```
 
 完整参数见 `skills/circle_client.md`。

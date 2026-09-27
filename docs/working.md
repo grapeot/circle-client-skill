@@ -2,11 +2,17 @@
 
 ## Changelog
 
+### 2026-09-27 Threads are always fetched
+
+- `lesson-comments` 去掉 `--with-threads`。对 `replies_count > 0` 的根消息一律再拉一页回复，N+1 是固有成本。JSON 固定为 `roots` + `threads`，不再回退到 `records`，也没有 `with_threads` 字段。
+- `--focus <id>`：root id 命中则只留该 root 并只抓它的 replies；未命中则在已抓 replies 里找，命中留其 root 和全部 replies；都不中报 `message <id> not found among roots or fetched replies`。不在本次 window 里视为未找到。
+- `mention-sgids` 去掉 `--no-threads`。`mention_sgids_in_room` 同步删掉 `include_threads`，恒抓 thread 回复。
+
 ### 2026-09-27 Paragraph-aware message text and mention-sgids
 
 - `circle_ios_fallback_text` 把所有 tiptap 段落压成一整段，段落间空行丢失。mention 节点没有 `text`，旧 `_plain` 会渲染成空字符串，表格里 @ 直接消失。读消息正文改走 `rich_text_body.body.content`：非空 paragraph 用空行连接，段内 `hardBreak` 保留换行，mention 用同条消息 `community_members` 的 sgid→name 解析成 `@Name`，解析不到用 `@…`。空 paragraph block 是视觉间距，不产生文本。没有可解析段落时，`rich_text_message_text` 才回退到 strip 后的 fallback。表格预览仍由 `_truncate` 压空白，换行不会撑破列对齐；卡片正文保留段落。`format_lesson_card` 仍优先 fallback，未改。
 - 一条消息的 `community_members` / `sgids_to_object_map` 只包含这条消息里被 mention 的人，不含作者本人的 sgid。要 @ 作者，不能从他自己的消息里取 sgid。
-- 新只读命令 `mention-sgids`：从 room 当前 window 的根消息聚合被 mention 过的人（默认再对 `replies_count > 0` 的根拉一页回复，`--no-threads` 跳过）。按 sgid 去重，输出 name / community_member_id / user_id / sgid；name 缺失时后续消息可补全。room 解析与 `update-chat-message` 相同（`--room-uuid`、`--space-id`，或 space + section + lesson）。空 window 提示改用 `search-mentions --query <name>`。
+- 新只读命令 `mention-sgids`：从 room 当前 window 的根消息聚合被 mention 过的人，并对 `replies_count > 0` 的根再拉一页回复（没有跳过开关）。按 sgid 去重，输出 name / community_member_id / user_id / sgid；name 缺失时后续消息可补全。room 解析与 `update-chat-message` 相同（`--room-uuid`、`--space-id`，或 space + section + lesson）。空 window 提示改用 `search-mentions --query <name>`。
 - 回复并 mention：先 `mention-sgids` 拿 sgid，再 `chat-send --mention-sgid <sgid> --parent-message-id <root-id>`。不知道名字用本命令；知道名字仍用 `search-mentions`。
 
 ### 2026-09-27 Chat message edit, mentions, and lesson comment focus
@@ -15,7 +21,7 @@
 - 确认已有发送契约：`POST .../messages`，body `{"chat_room_message": {"chat_room_participant_id", "rich_text_body", "parent_message_id"(可选), "unfurl_urls": {}}}`。`mention_sgids` 省略时 rich_text_body 与改前逐字段一致（整段文本仍是一个 paragraph，不按行拆）。
 - mention 节点是 `{"type":"mention","attrs":{"sgid":"<server-signed>"}}`，后面紧跟一个以空格开头的 text 节点。sgid 不能客户端构造。合法来源：`GET /users/mentions.json?query=&per_page=`（返回 JSON 数组，不在 `/internal_api/` 下；字段含 `id`、`just_name`、`sgid`），或已有消息的 `rich_text_body.sgids_to_object_map` / `community_members[].sgid`。新只读命令 `search-mentions`。
 - `chat-send` 增加可重复的 `--mention-sgid`，dry-run preflight 增加 mentions 数量。room 三选一：`--room-uuid`、`--space-id`，或 `--space-id` + `--section-id` + `--lesson-id`（后者走 lesson 的 `chat_room_uuid`）。`update-chat-message` 用同一套 room 解析。lesson/space 解析在 dry-run 时仍会发只读 GET，因为 preflight 要打印解析后的 uuid；只给 `--room-uuid` 时不发请求。
-- `lesson-comments --focus <id>` 在现有 window 截断之后过滤。root id 命中则只留该 root（`--with-threads` 时只抓它的 replies）。未命中且开了 `--with-threads` 时，在已抓 replies 里找，命中则留其 root。都不中则报错。不在本次请求 window 里的消息视为未找到。JSON schema 不变，只是变成单线程。
+- `lesson-comments --focus <id>` 在现有 window 截断之后过滤。root id 命中则只留该 root 及其 replies。未命中时在已抓 replies 里找，命中则留其 root 和全部 replies。都不中则报错。不在本次请求 window 里的消息视为未找到。JSON 是单线程的 `roots` + `threads`。
 - 新增离线测试 `tests/test_chat_edit.py`，以及 `tests/test_course.py` 的 focus 用例。fixture 只用合成 id、uuid 和 `example.test`。
 - `--env-file` 和 `--json` 一样，可以写在子命令后面。父 parser 上的 `--env-file` 原先只在子命令前生效。
 
@@ -23,7 +29,7 @@
 
 - 新增三个只读命令：`course-lessons`（列 section/lesson id）、`course-lesson`（lesson 正文、附件和 `chat_room_uuid`）、`lesson-comments`（读该 lesson 的讨论）。
 - lesson 讨论存在 per-lesson chat room，不是 post comment。lesson endpoint 必须走带 section 的路径 `GET /internal_api/courses/<space_id>/sections/<section_id>/lessons/<lesson_id>`；不带 section 的 variant 返回 404。
-- `lesson-comments` 输出契约与 `list-chat-messages` 一致：room feed newest-first，pagination 元数据（`first_id`/`last_id`/`has_*`）保留 ascending 原页。`--with-threads` 是 N+1 opt-in，只对 `replies_count > 0` 的根消息再拉一页回复，默认不发。
+- `lesson-comments` 根消息 newest-first，pagination 元数据（`first_id`/`last_id`/`has_*`）保留 ascending 原页。对 `replies_count > 0` 的根消息一律再拉一页回复，N+1 是固有成本。JSON 用 `roots` + `threads`，没有 `with_threads` 字段。
 - 实测 lesson 讨论 room：服务端忽略 `previous_per_page`/`next_per_page`（0/2/15 重复测量都一次返回全部根消息，`total_count` 含 thread replies 而 feed 只列根消息）。`lesson-comments` 因此在输出层按请求的 window 截断（previous 取最新 N 条），flag 语义才成立；`list-chat-messages` 保持原契约未动。
 - `course_comment` 通知的 `action_inbox_path` 形如 `/settings/inbox/course-comments/<room-uuid>`，可直接 `list-chat-messages --room-uuid <uuid>`；`action_web_url` 里 `#message_<id>` 是根消息 id。
 - 这些 endpoint 是通过 Playwright 注入 cookies，再用 CDP `page.on` 监听 internal_api XHR 发现的，不是猜的。

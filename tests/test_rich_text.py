@@ -234,7 +234,7 @@ def _room_fixtures() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     return roots, replies
 
 
-def test_mention_sgids_in_room_dedupes_fills_name_and_skips_replies_when_disabled() -> None:
+def test_mention_sgids_in_room_dedupes_and_fills_name_from_later_message() -> None:
     roots, replies = _room_fixtures()
     session = RoutingSession(roots, replies)
     mapping = CircleClient(_settings(), session=session).mention_sgids_in_room(
@@ -267,16 +267,6 @@ def test_mention_sgids_in_room_dedupes_fills_name_and_skips_replies_when_disable
     assert any("parent_message_id=9000001" in call["url"] and "next_per_page=3" in call["url"] for call in session.calls)
     assert not any("parent_message_id=9000002" in call["url"] for call in session.calls)
 
-    quiet = RoutingSession(roots, replies)
-    without_threads = CircleClient(_settings(), session=quiet).mention_sgids_in_room(
-        ROOM,
-        include_threads=False,
-    )
-    assert "FAKE-SGID-0003" not in without_threads
-    assert without_threads["FAKE-SGID-0001"]["name"] == "Test User"
-    assert without_threads["FAKE-SGID-0001"]["seen_in_message_id"] == 9000001
-    assert all("parent_message_id" not in call["url"] for call in quiet.calls)
-
 
 def test_format_mention_sgids_table_truncates_sgid() -> None:
     sgid = "FAKE-SGID-" + ("a" * 30)
@@ -304,7 +294,8 @@ def test_mention_sgids_help_documents_reply_flow(capsys: pytest.CaptureFixture[s
     assert caught.value.code == 0
     output = " ".join(capsys.readouterr().out.split())
     assert "chat-send --mention-sgid <sgid> --parent-message-id <root-id>" in output
-    assert "--no-threads" in output
+    assert "--no-threads" not in output
+    assert "replies_count > 0" in output
     assert "--room-uuid" in output
     args = parser.parse_args(
         [
@@ -315,7 +306,7 @@ def test_mention_sgids_help_documents_reply_flow(capsys: pytest.CaptureFixture[s
             "10",
         ]
     )
-    assert args.no_threads is False
+    assert not hasattr(args, "no_threads")
     assert args.previous_per_page == 10
     assert args.threads_per_page == 50
     assert args.handler is cli.cmd_mention_sgids

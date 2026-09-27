@@ -662,13 +662,12 @@ class CircleClient:
         *,
         previous_per_page: int = 50,
         threads_per_page: int = 50,
-        include_threads: bool = True,
     ) -> dict[str, dict[str, Any]]:
         """Aggregate sgids of members mentioned in a fetched room window.
 
         A message carries sgids of people who were mentioned, not the author's
-        own sgid. ``include_threads`` fetches one reply page per root with
-        ``replies_count > 0``, matching ``lesson-comments`` N+1.
+        own sgid. Fetches one reply page per root with ``replies_count > 0``,
+        matching ``lesson-comments`` N+1.
         """
         page = self.list_chat_messages(
             chat_room_uuid,
@@ -685,8 +684,7 @@ class CircleClient:
             _absorb_message_mentions(found, root)
             replies_count = root.get("replies_count")
             if (
-                not include_threads
-                or not isinstance(replies_count, int)
+                not isinstance(replies_count, int)
                 or isinstance(replies_count, bool)
                 or replies_count <= 0
                 or root.get("id") is None

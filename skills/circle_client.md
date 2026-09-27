@@ -81,7 +81,7 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 
 ## 排序与分页契约
 
-- **page 内排序**：`list-posts`、`list-chat-messages`、`lesson-comments` 默认 newest-first；`list-chat-replies` 和 `lesson-comments --with-threads` 拉到的 thread 回复保持 ascending（thread 自上而下阅读）。
+- **page 内排序**：`list-posts`、`list-chat-messages`、`lesson-comments` 的根消息默认 newest-first；`list-chat-replies` 和 `lesson-comments` 拉到的 thread 回复保持 ascending（thread 自上而下阅读）。
 - **cursor 翻页**：`list-chat-messages` 和 `lesson-comments` 的 `--direction next/previous` 描述的是"取更新/更老的页"，page 内 ordering 固定，两者不耦合。pagination 元数据（`first_id`/`last_id`/`has_*`）始终对应 Circle API 返回的 ascending 原页，用于推导下一页 cursor。
 
 ## 可用命令
@@ -112,7 +112,7 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 .venv/bin/circle-client upload-image -f <path> --execute --confirm UPLOAD-IMAGE
 .venv/bin/circle-client search-mentions --query member --per-page 20
 .venv/bin/circle-client mention-sgids --room-uuid 00000000-0000-0000-0000-000000000000
-.venv/bin/circle-client mention-sgids -s 9000000 --section-id 9000001 --lesson-id 9000002 --no-threads
+.venv/bin/circle-client mention-sgids -s 9000000 --section-id 9000001 --lesson-id 9000002
 .venv/bin/circle-client chat-send --room-uuid 00000000-0000-0000-0000-000000000000 --participant-id 9000010 --text "Hello" --mention-sgid FAKE-SGID-0001 --parent-message-id 9000003 --execute --confirm CHAT-SEND
 .venv/bin/circle-client chat-send -s 9000000 --section-id 9000001 --lesson-id 9000002 --participant-id 9000010 --text "Hello" --parent-message-id 9000003
 .venv/bin/circle-client update-chat-message --room-uuid 00000000-0000-0000-0000-000000000000 --message-id 9000001 --text "Hello" --mention-sgid FAKE-SGID-0001
@@ -123,9 +123,9 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 # 课程内容与 lesson 讨论（只读）
 .venv/bin/circle-client course-lessons -s <space_id>
 .venv/bin/circle-client course-lesson -s <space_id> --section-id <id> --lesson-id <id>
-.venv/bin/circle-client lesson-comments -s 9000000 --section-id 9000001 --lesson-id 9000002 [--with-threads]
+.venv/bin/circle-client lesson-comments -s 9000000 --section-id 9000001 --lesson-id 9000002
 .venv/bin/circle-client lesson-comments -s 9000000 --section-id 9000001 --lesson-id 9000002 --focus 9000003
-.venv/bin/circle-client lesson-comments -s 9000000 --section-id 9000001 --lesson-id 9000002 --with-threads --focus 9000004
+.venv/bin/circle-client lesson-comments -s 9000000 --section-id 9000001 --lesson-id 9000002 --focus 9000004
 ```
 
 `fetch` 默认在连续 100 条已读记录后停止。用户明确要求完整历史审计时才使用 `--stop-after-consecutive-read 0`。
@@ -138,8 +138,8 @@ course 类 space 的 lesson 内容是正文加媒体，不是 post。lesson 讨�
 
 1. `course-lessons -s <space_id>` 从 space 的 `course_sections` 取出 section id 和 lesson id。`course_sections` 缺失、为 null 或为空时命令会失败，说明这不是 course space。
 2. `course-lesson -s <space_id> --section-id <id> --lesson-id <id>` 拿正文、附件文件名和 `chat_room_uuid`。lesson endpoint 必须走带 section 的路径；不带 section 的 variant 会 404。
-3. `lesson-comments` 用同一组 id 读讨论。输出契约与 `list-chat-messages` 相同：page 内 newest-first，pagination 元数据保留 ascending 原页。`--with-threads` 才对 `replies_count > 0` 的根消息再拉一页回复，这是 N+1，默认关闭。`--json` 里 `threads` 的 key 是字符串形式的根消息 id。
-   `--focus <message-id>` 在 window 截断之后只留包含该消息的线程：root id 命中即可；要在 replies 里找，必须同时加 `--with-threads`。不在本次 window 里的消息会报未找到。
+3. `lesson-comments` 用同一组 id 读讨论。根消息 newest-first，pagination 元数据保留 ascending 原页。对 `replies_count > 0` 的根消息一律再拉一页回复，N+1 是固有成本，没有开关。`--json` 输出 `roots` 和 `threads`（key 是字符串形式的根消息 id），不用 `records`，也没有 `with_threads` 字段。
+   `--focus <message-id>` 在 window 截断之后只留包含该消息的线程：root id 命中则留该 root 及其 replies；未命中则在已抓 replies 里找，命中则留其 root 和全部 replies。都不中，或不在本次 window 里，会报未找到。
    注意：lesson 讨论 room 里服务端会忽略 per-page 参数、一次返回全部根消息，所以命令在输出层按 `--previous-per-page`（默认 20）截断到最新 N 条；要看更多把 per-page 调大。
 
 要在 lesson 讨论里发或改消息，room 不用手填 uuid：`chat-send` / `update-chat-message` 接受 `-s <space_id> --section-id <id> --lesson-id <id>`，内部读 lesson 的 `chat_room_uuid`。发送仍然要 `--participant-id`；编辑不传 participant id。
@@ -157,7 +157,7 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 .venv/bin/circle-client chat-send --room-uuid 00000000-0000-0000-0000-000000000000 --participant-id 9000010 --text "Hello" --mention-sgid FAKE-SGID-0001 --parent-message-id 9000003 --execute --confirm CHAT-SEND
 ```
 
-默认包含 thread 回复。只要根消息时加 `--no-threads`。当前 window 没有 mention 时，改用 `search-mentions --query <name>`。
+会把当前 window 里 `replies_count > 0` 的根消息的一页回复也算进去。当前 window 没有 mention 时，改用 `search-mentions --query <name>`。
 
 拿到 sgid 后传给 `chat-send --mention-sgid` 或 `update-chat-message --mention-sgid`（可重复）。只在 `--text` 模式有效；`--tiptap-file` / `--tiptap-json` 是把整个 `rich_text_body` 透传，这时再带 `--mention-sgid` 会直接报错。
 
