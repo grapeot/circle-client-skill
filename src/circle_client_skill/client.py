@@ -13,6 +13,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import requests
 
 from .config import CircleSettings
+from .rich_text import build_rich_text_body
 
 
 def _redact_credentials(value: str) -> str:
@@ -541,23 +542,17 @@ class CircleClient:
         chat_room_participant_id: int,
         text: str,
         parent_message_id: int | None = None,
+        mention_sgids: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Send a message to a chat room. If parent_message_id is set, creates a thread reply."""
-        body = {
+        """Send a message to a chat room. If parent_message_id is set, creates a thread reply.
+
+        ``mention_sgids=None`` keeps the pre-mention rich_text_body. Sgids must
+        come from ``search_mentions`` or an existing message; they are not built here.
+        """
+        body: dict[str, Any] = {
             "chat_room_message": {
                 "chat_room_participant_id": chat_room_participant_id,
-                "rich_text_body": {
-                    "body": {
-                        "type": "doc",
-                        "content": [
-                            {
-                                "type": "paragraph",
-                                "content": [{"type": "text", "text": text}],
-                            }
-                        ],
-                    },
-                    "attachments": [],
-                },
+                "rich_text_body": build_rich_text_body(text, mention_sgids),
                 "unfurl_urls": {},
             }
         }
@@ -570,6 +565,45 @@ class CircleClient:
             mutation=True,
             accept_statuses=(200, 202),
         )
+
+    def update_chat_message(
+        self,
+        chat_room_uuid: str,
+        message_id: int,
+        *,
+        rich_text_body: dict[str, Any],
+    ) -> Any:
+        """Replace a chat message body.
+
+        The session identifies the author, so the body has no participant id.
+        """
+        return self._request(
+            "PATCH",
+            f"{self.settings.base_url}/internal_api/chat_rooms/{chat_room_uuid}/messages/{message_id}",
+            json_body={
+                "chat_room_message": {
+                    "rich_text_body": rich_text_body,
+                    "attachments": [],
+                }
+            },
+            mutation=True,
+            accept_statuses=(200, 202, 204),
+        )
+
+    def search_mentions(self, query: str, *, per_page: int = 20) -> list[Any]:
+        """Search mentionable members.
+
+        ``GET /users/mentions.json`` returns a JSON array (not an ``internal_api``
+        envelope). Each item includes ``id``, ``just_name``, and a server-signed ``sgid``.
+        """
+        result = self._request(
+            "GET",
+            f"{self.settings.base_url}/users/mentions.json",
+            params={"query": query, "per_page": str(per_page)},
+        )
+        if not isinstance(result, list):
+            raise CircleClientError("Circle mentions search did not return a list")
+        return result
 
     # ---- Notifications ----
 

@@ -2,6 +2,16 @@
 
 ## Changelog
 
+### 2026-09-27 Chat message edit, mentions, and lesson comment focus
+
+- 新增 mutation `update-chat-message`（默认 dry-run，live 需 `--execute --confirm UPDATE-CHAT-MESSAGE`）。契约是 `PATCH /internal_api/chat_rooms/{uuid}/messages/{id}`，body 为 `{"chat_room_message": {"rich_text_body": <object>, "attachments": []}}`。服务端从 session 识别作者，**不传** `chat_room_participant_id`。接受 200/202/204（实测 chat mutation 会返回 202）。sgid 是 mention 凭证，绑定当前 session，不是独立 token，但 `--json` 输出仍属敏感数据，不要进公开渠道。
+- 确认已有发送契约：`POST .../messages`，body `{"chat_room_message": {"chat_room_participant_id", "rich_text_body", "parent_message_id"(可选), "unfurl_urls": {}}}`。`mention_sgids` 省略时 rich_text_body 与改前逐字段一致（整段文本仍是一个 paragraph，不按行拆）。
+- mention 节点是 `{"type":"mention","attrs":{"sgid":"<server-signed>"}}`，后面紧跟一个以空格开头的 text 节点。sgid 不能客户端构造。合法来源：`GET /users/mentions.json?query=&per_page=`（返回 JSON 数组，不在 `/internal_api/` 下；字段含 `id`、`just_name`、`sgid`），或已有消息的 `rich_text_body.sgids_to_object_map` / `community_members[].sgid`。新只读命令 `search-mentions`。
+- `chat-send` 增加可重复的 `--mention-sgid`，dry-run preflight 增加 mentions 数量。room 三选一：`--room-uuid`、`--space-id`，或 `--space-id` + `--section-id` + `--lesson-id`（后者走 lesson 的 `chat_room_uuid`）。`update-chat-message` 用同一套 room 解析。lesson/space 解析在 dry-run 时仍会发只读 GET，因为 preflight 要打印解析后的 uuid；只给 `--room-uuid` 时不发请求。
+- `lesson-comments --focus <id>` 在现有 window 截断之后过滤。root id 命中则只留该 root（`--with-threads` 时只抓它的 replies）。未命中且开了 `--with-threads` 时，在已抓 replies 里找，命中则留其 root。都不中则报错。不在本次请求 window 里的消息视为未找到。JSON schema 不变，只是变成单线程。
+- 新增离线测试 `tests/test_chat_edit.py`，以及 `tests/test_course.py` 的 focus 用例。fixture 只用合成 id、uuid 和 `example.test`。
+- `--env-file` 和 `--json` 一样，可以写在子命令后面。父 parser 上的 `--env-file` 原先只在子命令前生效。
+
 ### 2026-09-27 Course content and lesson comments (read-only)
 
 - 新增三个只读命令：`course-lessons`（列 section/lesson id）、`course-lesson`（lesson 正文、附件和 `chat_room_uuid`）、`lesson-comments`（读该 lesson 的讨论）。
@@ -78,3 +88,4 @@
 - Chat thread reply 的 `parent_message_id` 实际工作正常。之前的 "失败" 是 verify 脚本 bug——用 `response.id`（不存在，response 只有 `creation_uuid`）作为 parent_message_id，导致 None。
 - `csrf_token` cookie 可能在页面 reload 后变化；`.env` 里的 CSRF 值需要定期更新。
 - Circle chat 用 cursor-based pagination（`id` + `previous_per_page` + `next_per_page`），不是 page numbers。历史方向以 `first_id` 为 cursor，未来方向以 `last_id` 为 cursor；相邻页含 anchor overlap，必须按 message ID 去重。
+- 编辑聊天消息的 PATCH 不带 participant id；发送的 POST 仍然要带。mention sgid 是服务端签名，`/users/mentions.json` 返回的是 JSON 数组，不是 `{records: ...}` envelope。

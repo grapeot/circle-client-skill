@@ -273,6 +273,24 @@ def format_lesson_card(lesson: dict) -> str:
     return "\n".join(lines)
 
 
+def format_mentions_table(results: list) -> str:
+    rows = []
+    for item in results:
+        record = item if isinstance(item, dict) else {}
+        sgid = str(record.get("sgid") or "")
+        if len(sgid) > 24:
+            sgid = sgid[:24] + "…"
+        rows.append((record.get("just_name", ""), record.get("id", ""), sgid))
+    return _table(
+        rows,
+        [
+            ("NAME", 40),
+            ("USER_ID", None),
+            ("SGID", None),
+        ],
+    )
+
+
 def format_comment_threads(threads: dict) -> str:
     parts = []
     for root_id, replies in threads.items():
@@ -351,6 +369,13 @@ def format_mutation_result(result: dict, operation: str) -> str:
         message = result.get("message", result)
         room = result.get("chat_room_uuid", "")
         return f"OK: sent chat message (creation_uuid={message.get('creation_uuid', '')}) to room {room}"
+    if operation == "update-chat-message":
+        message = result.get("message")
+        message_id = result.get("message_id", "")
+        if not message_id and isinstance(message, dict):
+            message_id = message.get("id", "")
+        room = result.get("chat_room_uuid", "")
+        return f"OK: updated chat message #{message_id} in room {room}"
     if operation == "reset-count":
         return "OK: reset notification count"
     return f"OK: {operation}"

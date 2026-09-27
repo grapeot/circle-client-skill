@@ -29,6 +29,7 @@ from .formatters import (
     format_course_lessons,
     format_fetch_summary,
     format_lesson_card,
+    format_mentions_table,
     format_mutation_dryrun,
     format_mutation_result,
     format_post_card,
@@ -38,6 +39,7 @@ from .formatters import (
     format_unreplied_table,
 )
 from .render import render_csv, render_html, render_markdown
+from .rich_text import build_rich_text_body
 
 
 def _print_json(value: object) -> None:
@@ -45,6 +47,23 @@ def _print_json(value: object) -> None:
 
 
 def _resolve_room_uuid(client: CircleClient, args: argparse.Namespace) -> str:
+    section_id = getattr(args, "section_id", None)
+    lesson_id = getattr(args, "lesson_id", None)
+    if section_id is not None or lesson_id is not None:
+        if args.room_uuid:
+            raise ValueError(
+                "pass --room-uuid, --space-id, or --space-id with --section-id and --lesson-id, not a mix"
+            )
+        if section_id is None or lesson_id is None or getattr(args, "space_id", None) is None:
+            raise ValueError("lesson room requires --space-id, --section-id, and --lesson-id")
+        lesson = client.get_course_lesson(args.space_id, section_id, lesson_id)
+        room_uuid = lesson.get("chat_room_uuid")
+        if not isinstance(room_uuid, str) or not room_uuid:
+            raise ValueError(
+                f"Lesson {lesson_id} has no discussion room "
+                f"(comments_enabled={lesson.get('comments_enabled')})"
+            )
+        return room_uuid
     if args.room_uuid:
         return args.room_uuid
     space = client.get_space(args.space_id)
@@ -52,6 +71,28 @@ def _resolve_room_uuid(client: CircleClient, args: argparse.Namespace) -> str:
     if not isinstance(room_uuid, str) or not room_uuid:
         raise ValueError(f"Space {args.space_id} has no chat_room_uuid")
     return room_uuid
+
+
+def _rich_text_from_args(args: argparse.Namespace) -> tuple[dict, str, int]:
+    text = getattr(args, "text", None)
+    tiptap_file = getattr(args, "tiptap_file", None)
+    tiptap_json = getattr(args, "tiptap_json", None)
+    mention_sgids = list(getattr(args, "mention_sgid", None) or [])
+    chosen = sum(value is not None for value in (text, tiptap_file, tiptap_json))
+    if chosen != 1:
+        raise ValueError("pass exactly one of --text, --tiptap-file, or --tiptap-json")
+    if text is None and mention_sgids:
+        raise ValueError("--mention-sgid is only valid with --text")
+    if text is not None:
+        return build_rich_text_body(text, mention_sgids or None), text[:100], len(mention_sgids)
+    raw = Path(tiptap_file).read_text(encoding="utf-8") if tiptap_file is not None else str(tiptap_json)
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("tiptap body must be a JSON object") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("tiptap body must be a JSON object")
+    return parsed, "tiptap body", 0
 
 
 def _directional_page_sizes(args: argparse.Namespace) -> tuple[int, int]:
@@ -571,6 +612,7 @@ def cmd_chat_send(args: argparse.Namespace) -> None:
     settings = load_settings(Path(args.env_file))
     client = CircleClient(settings, timeout=args.timeout)
     room_uuid = _resolve_room_uuid(client, args)
+    mention_sgids = args.mention_sgid or []
     if not args.execute:
         preflight = {
             "success": True,
@@ -580,6 +622,7 @@ def cmd_chat_send(args: argparse.Namespace) -> None:
             "participant_id": args.participant_id,
             "text": args.text[:100],
             "parent_message_id": args.parent_message_id,
+            "mentions": len(mention_sgids),
             "csrf_present": bool(settings.csrf_token),
         }
         print(json.dumps(preflight, ensure_ascii=False, indent=2) if args.json else format_mutation_dryrun(preflight))
@@ -589,6 +632,7 @@ def cmd_chat_send(args: argparse.Namespace) -> None:
         chat_room_participant_id=args.participant_id,
         text=args.text,
         parent_message_id=args.parent_message_id,
+        mention_sgids=mention_sgids or None,
     )
     payload = {"success": True, "dry_run": False, "message": result}
     if args.json:
@@ -712,7 +756,18 @@ def cmd_lesson_comments(args: argparse.Namespace) -> None:
     # while pagination cursors keep the ascending original page.
     result = {**result, "records": list(reversed(records_asc))}
     roots = result["records"]
+    focus = getattr(args, "focus", None)
+    if focus is not None:
+        matched = [root for root in roots if root.get("id") == focus]
+        if matched:
+            roots = matched
+        elif not args.with_threads:
+            raise ValueError(
+                f"message {focus} not found among fetched roots; "
+                "pass --with-threads to search inside replies"
+            )
     if not args.with_threads:
+        result = {**result, "records": roots}
         if args.json:
             _print_json(
                 {
@@ -733,6 +788,17 @@ def cmd_lesson_comments(args: argparse.Namespace) -> None:
             room_uuid, root["id"], next_per_page=args.threads_per_page
         )
         threads[root["id"]] = page.get("records", [])
+    if focus is not None and not any(root.get("id") == focus for root in roots):
+        owner = None
+        for root in roots:
+            replies = threads.get(root.get("id"), [])
+            if any(isinstance(reply, dict) and reply.get("id") == focus for reply in replies):
+                owner = root
+                break
+        if owner is None:
+            raise ValueError(f"message {focus} not found among roots or fetched replies")
+        roots = [owner]
+        threads = {owner["id"]: threads.get(owner["id"], [])}
     if args.json:
         _print_json(
             {
@@ -754,6 +820,52 @@ def cmd_lesson_comments(args: argparse.Namespace) -> None:
         if rendered:
             print()
             print(rendered)
+
+
+def cmd_update_chat_message(args: argparse.Namespace) -> None:
+    if args.execute and args.confirm != "UPDATE-CHAT-MESSAGE":
+        raise ValueError("Live execution requires --confirm UPDATE-CHAT-MESSAGE")
+    rich_text_body, preview, mention_count = _rich_text_from_args(args)
+    settings = load_settings(Path(args.env_file))
+    client = CircleClient(settings, timeout=args.timeout)
+    room_uuid = _resolve_room_uuid(client, args)
+    if not args.execute:
+        preflight = {
+            "success": True,
+            "dry_run": True,
+            "operation": "update_chat_message",
+            "chat_room_uuid": room_uuid,
+            "message_id": args.message_id,
+            "text": preview,
+            "mentions": mention_count,
+            "csrf_present": bool(settings.csrf_token),
+        }
+        print(json.dumps(preflight, ensure_ascii=False, indent=2) if args.json else format_mutation_dryrun(preflight))
+        return
+    result = client.update_chat_message(room_uuid, args.message_id, rich_text_body=rich_text_body)
+    payload = {
+        "success": True,
+        "dry_run": False,
+        "message": result,
+        "chat_room_uuid": room_uuid,
+        "message_id": args.message_id,
+    }
+    if args.json:
+        _print_json(payload)
+    else:
+        print(format_mutation_result(payload, "update-chat-message"))
+
+
+def cmd_search_mentions(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    results = CircleClient(settings, timeout=args.timeout).search_mentions(
+        args.query,
+        per_page=args.per_page,
+    )
+    if args.json:
+        _print_json(results)
+    else:
+        print(format_mentions_table(results))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -906,14 +1018,72 @@ def build_parser() -> argparse.ArgumentParser:
     chat_send = subparsers.add_parser("chat-send", help="Send a chat message (dry-run by default)")
     chat_send_room = chat_send.add_mutually_exclusive_group(required=True)
     chat_send_room.add_argument("--room-uuid")
-    chat_send_room.add_argument("--space-id", type=int)
+    chat_send_room.add_argument("-s", "--space-id", type=int)
+    chat_send.add_argument(
+        "--section-id",
+        type=int,
+        help="With --lesson-id and --space-id, send to that lesson's discussion room",
+    )
+    chat_send.add_argument(
+        "--lesson-id",
+        type=int,
+        help="With --section-id and --space-id, send to that lesson's discussion room",
+    )
     chat_send.add_argument("--participant-id", type=int, required=True)
     chat_send.add_argument("--text", required=True)
+    chat_send.add_argument(
+        "--mention-sgid",
+        action="append",
+        default=None,
+        help="Server-signed mention sgid from search-mentions; repeat to mention more than one member",
+    )
     chat_send.add_argument("--parent-message-id", type=int, default=None)
     chat_send.add_argument("--execute", action="store_true")
     chat_send.add_argument("--confirm")
     chat_send.add_argument("--timeout", type=float, default=30)
     chat_send.set_defaults(handler=cmd_chat_send)
+
+    update_chat = subparsers.add_parser(
+        "update-chat-message",
+        help="Edit a chat message body (dry-run by default)",
+    )
+    update_chat_room = update_chat.add_mutually_exclusive_group(required=True)
+    update_chat_room.add_argument("--room-uuid")
+    update_chat_room.add_argument("-s", "--space-id", type=int)
+    update_chat.add_argument(
+        "--section-id",
+        type=int,
+        help="With --lesson-id and --space-id, edit a message in that lesson's discussion room",
+    )
+    update_chat.add_argument(
+        "--lesson-id",
+        type=int,
+        help="With --section-id and --space-id, edit a message in that lesson's discussion room",
+    )
+    update_chat.add_argument("--message-id", type=int, required=True)
+    update_chat_body = update_chat.add_mutually_exclusive_group(required=True)
+    update_chat_body.add_argument("--text", help="Plain text body; may contain newlines")
+    update_chat_body.add_argument("--tiptap-file", help="JSON file containing a rich_text_body object")
+    update_chat_body.add_argument("--tiptap-json", help="rich_text_body object as a JSON string")
+    update_chat.add_argument(
+        "--mention-sgid",
+        action="append",
+        default=None,
+        help="Server-signed mention sgid; only valid with --text",
+    )
+    update_chat.add_argument("--execute", action="store_true")
+    update_chat.add_argument("--confirm")
+    update_chat.add_argument("--timeout", type=float, default=30)
+    update_chat.set_defaults(handler=cmd_update_chat_message)
+
+    search_mentions = subparsers.add_parser(
+        "search-mentions",
+        help="Search mentionable members and their server-signed sgids",
+    )
+    search_mentions.add_argument("--query", required=True)
+    search_mentions.add_argument("--per-page", type=int, default=20)
+    search_mentions.add_argument("--timeout", type=float, default=30)
+    search_mentions.set_defaults(handler=cmd_search_mentions)
 
     list_chat = subparsers.add_parser("list-chat-messages", help="List messages in a chat room")
     list_chat_room = list_chat.add_mutually_exclusive_group(required=True)
@@ -979,12 +1149,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fetch one page of replies for each root with replies_count > 0 (N+1, opt-in)",
     )
     lesson_comments.add_argument("--threads-per-page", type=int, default=50)
+    lesson_comments.add_argument(
+        "--focus",
+        type=int,
+        default=None,
+        help="只输出包含该消息的线程（root id 命中；配 --with-threads 时 replies 命中也算）",  # noqa: RUF001
+    )
     lesson_comments.add_argument("--timeout", type=float, default=30)
     lesson_comments.set_defaults(handler=cmd_lesson_comments)
 
-    # Accept the global flag after a subcommand too, matching the documented examples.
+    # Accept global flags after a subcommand too, matching the documented examples.
     for subparser in subparsers.choices.values():
         subparser.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+        subparser.add_argument("--env-file", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
 
     return parser
 

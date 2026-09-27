@@ -365,4 +365,108 @@ def test_course_parser_defaults() -> None:
     assert comments.previous_per_page == 20
     assert comments.next_per_page == 0
     assert comments.with_threads is False
+    assert comments.focus is None
     assert comments.json is True
+
+
+def _lesson_comment_args(**overrides: Any) -> argparse.Namespace:
+    values: dict[str, Any] = {
+        "env_file": "unused.env",
+        "timeout": 30,
+        "space_id": 9000000,
+        "section_id": 9000001,
+        "lesson_id": 9000002,
+        "cursor": None,
+        "direction": "previous",
+        "previous_per_page": 20,
+        "next_per_page": 0,
+        "with_threads": False,
+        "threads_per_page": 50,
+        "focus": None,
+        "json": True,
+    }
+    values.update(overrides)
+    return argparse.Namespace(**values)
+
+
+def _focus_client(reply_calls: list[int]) -> type:
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None: ...
+
+        def get_course_lesson(self, space_id: int, section_id: int, lesson_id: int) -> dict:
+            return {"id": lesson_id, "chat_room_uuid": "11111111-1111-1111-1111-111111111111"}
+
+        def list_chat_messages(self, chat_room_uuid: str, **_: Any) -> dict:
+            return {
+                "total_count": 2,
+                "first_id": 10,
+                "last_id": 20,
+                "has_previous_page": False,
+                "has_next_page": False,
+                "records": [
+                    {"id": 10, "body": "older", "replies_count": 1},
+                    {"id": 20, "body": "newer", "replies_count": 0},
+                ],
+            }
+
+        def fetch_chat_replies(self, room_uuid: str, parent_message_id: int, **_: Any) -> dict:
+            reply_calls.append(parent_message_id)
+            return {"records": [{"id": 101, "body": "reply"}]}
+
+    return FakeClient
+
+
+def test_lesson_comments_focus_keeps_matching_root(monkeypatch, capsys) -> None:
+    reply_calls: list[int] = []
+    monkeypatch.setattr(cli, "load_settings", lambda _path: object())
+    monkeypatch.setattr(cli, "CircleClient", _focus_client(reply_calls))
+
+    cli.cmd_lesson_comments(_lesson_comment_args(focus=20))
+
+    output = json.loads(capsys.readouterr().out)
+    assert [record["id"] for record in output["records"]] == [20]
+    assert "threads" not in output
+    assert reply_calls == []
+
+
+def test_lesson_comments_focus_root_with_threads_fetches_only_that_thread(monkeypatch, capsys) -> None:
+    reply_calls: list[int] = []
+    monkeypatch.setattr(cli, "load_settings", lambda _path: object())
+    monkeypatch.setattr(cli, "CircleClient", _focus_client(reply_calls))
+
+    cli.cmd_lesson_comments(_lesson_comment_args(focus=10, with_threads=True))
+
+    output = json.loads(capsys.readouterr().out)
+    assert [root["id"] for root in output["roots"]] == [10]
+    assert list(output["threads"]) == ["10"]
+    assert output["threads"]["10"][0]["id"] == 101
+    assert reply_calls == [10]
+
+
+def test_lesson_comments_focus_matches_fetched_reply(monkeypatch, capsys) -> None:
+    reply_calls: list[int] = []
+    monkeypatch.setattr(cli, "load_settings", lambda _path: object())
+    monkeypatch.setattr(cli, "CircleClient", _focus_client(reply_calls))
+
+    cli.cmd_lesson_comments(_lesson_comment_args(focus=101, with_threads=True))
+
+    output = json.loads(capsys.readouterr().out)
+    assert [root["id"] for root in output["roots"]] == [10]
+    assert output["threads"]["10"][0]["id"] == 101
+    assert reply_calls == [10]
+
+
+def test_lesson_comments_focus_miss_requires_threads(monkeypatch) -> None:
+    reply_calls: list[int] = []
+    monkeypatch.setattr(cli, "load_settings", lambda _path: object())
+    monkeypatch.setattr(cli, "CircleClient", _focus_client(reply_calls))
+    with pytest.raises(ValueError, match="not found among fetched roots"):
+        cli.cmd_lesson_comments(_lesson_comment_args(focus=101))
+    assert reply_calls == []
+
+
+def test_lesson_comments_focus_miss_in_replies(monkeypatch) -> None:
+    monkeypatch.setattr(cli, "load_settings", lambda _path: object())
+    monkeypatch.setattr(cli, "CircleClient", _focus_client([]))
+    with pytest.raises(ValueError, match="not found among roots or fetched replies"):
+        cli.cmd_lesson_comments(_lesson_comment_args(focus=9000099, with_threads=True))
