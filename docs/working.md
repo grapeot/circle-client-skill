@@ -2,6 +2,16 @@
 
 ## Changelog
 
+### 2026-09-27 Course content and lesson comments (read-only)
+
+- 新增三个只读命令：`course-lessons`（列 section/lesson id）、`course-lesson`（lesson 正文、附件和 `chat_room_uuid`）、`lesson-comments`（读该 lesson 的讨论）。
+- lesson 讨论存在 per-lesson chat room，不是 post comment。lesson endpoint 必须走带 section 的路径 `GET /internal_api/courses/<space_id>/sections/<section_id>/lessons/<lesson_id>`；不带 section 的 variant 返回 404。
+- `lesson-comments` 输出契约与 `list-chat-messages` 一致：room feed newest-first，pagination 元数据（`first_id`/`last_id`/`has_*`）保留 ascending 原页。`--with-threads` 是 N+1 opt-in，只对 `replies_count > 0` 的根消息再拉一页回复，默认不发。
+- 实测 lesson 讨论 room：服务端忽略 `previous_per_page`/`next_per_page`（0/2/15 重复测量都一次返回全部根消息，`total_count` 含 thread replies 而 feed 只列根消息）。`lesson-comments` 因此在输出层按请求的 window 截断（previous 取最新 N 条），flag 语义才成立；`list-chat-messages` 保持原契约未动。
+- `course_comment` 通知的 `action_inbox_path` 形如 `/settings/inbox/course-comments/<room-uuid>`，可直接 `list-chat-messages --room-uuid <uuid>`；`action_web_url` 里 `#message_<id>` 是根消息 id。
+- 这些 endpoint 是通过 Playwright 注入 cookies，再用 CDP `page.on` 监听 internal_api XHR 发现的，不是猜的。
+- 新增离线测试 `tests/test_course.py`：sectioned URL、formatter、`course_sections` 为 null、lesson 无 `chat_room_uuid`、newest-first 且 pagination 元数据保留、`replies_count` 为 0 不发 N+1、三个命令的 `--json` 放在子命令后仍生效。
+
 ### 2026-08-06 list-posts 新增 --with-counts (replies count)
 
 - `list-posts --with-counts`：对每个 post 调 `list_comments per_page=1` 拿 `count`，注入 `comments_count`，formatter 在 `comments_count` 存在时显示 REPLIES 列。N+1 请求，opt-in。

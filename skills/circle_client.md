@@ -73,14 +73,16 @@ open data/index.html
 2. `basic` / `course` / `event` → `list-posts -s <space_id> --per-page N`（置顶帖钉顶，其余按 `published_at` 倒序）。
 3. `chat` → `list-chat-messages --space-id <space_id> --direction previous --previous-per-page N`（room 级 feed，已按 `created_at` 倒序）。
 
+course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走 `reply-post`。要看课程内容或 lesson 评论，用下方「课程内容与 lesson comments」。
+
 要拿单条全文：post 用 `get-post --slug`；chat message 当前没有单独 fetch 命令，表格预览只截前 80 字符，需要全文时加 `--json` 取 `records[].body`。
 
 要拿每篇 post 的回复数：`list-posts --with-counts`（对每个 post 多发一次 `list_comments per_page=1` 取 `count`，N+1 请求，按需开启）。**post 级别的 likes 数无法通过 member-session API 获取**——Circle 的 post-list 和 post-detail endpoint 都不返回 `likes_count`，也不存在 `/likes` endpoint；只有 comment 对象带 `likes_count`。
 
 ## 排序与分页契约
 
-- **page 内排序**：`list-posts`、`list-chat-messages` 默认 newest-first；`list-chat-replies` 保持 ascending（thread 自上而下阅读）。
-- **cursor 翻页**：`list-chat-messages` 的 `--direction next/previous` 描述的是"取更新/更老的页"，page 内 ordering 固定，两者不耦合。pagination 元数据（`first_id`/`last_id`/`has_*`）始终对应 Circle API 返回的 ascending 原页，用于推导下一页 cursor。
+- **page 内排序**：`list-posts`、`list-chat-messages`、`lesson-comments` 默认 newest-first；`list-chat-replies` 和 `lesson-comments --with-threads` 拉到的 thread 回复保持 ascending（thread 自上而下阅读）。
+- **cursor 翻页**：`list-chat-messages` 和 `lesson-comments` 的 `--direction next/previous` 描述的是"取更新/更老的页"，page 内 ordering 固定，两者不耦合。pagination 元数据（`first_id`/`last_id`/`has_*`）始终对应 Circle API 返回的 ascending 原页，用于推导下一页 cursor。
 
 ## 可用命令
 
@@ -111,11 +113,27 @@ open data/index.html
 .venv/bin/circle-client chat-send --room-uuid <uuid> --participant-id <id> --text "Hello" --execute --confirm CHAT-SEND
 .venv/bin/circle-client list-chat-messages --space-id <id> --direction previous --previous-per-page N   # 默认 newest-first
 .venv/bin/circle-client list-chat-replies --room-uuid <uuid> --parent-message-id <id>                      # thread 保持 ascending
+
+# 课程内容与 lesson 讨论（只读）
+.venv/bin/circle-client course-lessons -s <space_id>
+.venv/bin/circle-client course-lesson -s <space_id> --section-id <id> --lesson-id <id>
+.venv/bin/circle-client lesson-comments -s <space_id> --section-id <id> --lesson-id <id> [--with-threads]
 ```
 
 `fetch` 默认在连续 100 条已读记录后停止。用户明确要求完整历史审计时才使用 `--stop-after-consecutive-read 0`。
 
 所有 mutation 命令（create-post、update-post、delete-post、reply-post、upload-image、chat-send、reset-count）默认 dry-run，打印 preflight 不碰网络。Live 执行需同时提供 `--execute --confirm <ACTION>`，且用户当次明确授权。
+
+## 课程内容与 lesson comments
+
+course 类 space 的 lesson 内容是正文加媒体，不是 post。lesson 讨论也不是 post comment，而是挂在该 lesson 上的 chat room。三个命令都是只读 GET，按这个顺序用：
+
+1. `course-lessons -s <space_id>` 从 space 的 `course_sections` 取出 section id 和 lesson id。`course_sections` 缺失、为 null 或为空时命令会失败，说明这不是 course space。
+2. `course-lesson -s <space_id> --section-id <id> --lesson-id <id>` 拿正文、附件文件名和 `chat_room_uuid`。lesson endpoint 必须走带 section 的路径；不带 section 的 variant 会 404。
+3. `lesson-comments` 用同一组 id 读讨论。输出契约与 `list-chat-messages` 相同：page 内 newest-first，pagination 元数据保留 ascending 原页。`--with-threads` 才对 `replies_count > 0` 的根消息再拉一页回复，这是 N+1，默认关闭。`--json` 里 `threads` 的 key 是字符串形式的根消息 id。
+   注意：lesson 讨论 room 里服务端会忽略 per-page 参数、一次返回全部根消息，所以命令在输出层按 `--previous-per-page`（默认 20）截断到最新 N 条；要看更多把 per-page 调大。
+
+从 `course_comment` 通知进去可以跳过前两步。通知 JSON 的 `action_inbox_path` 形如 `/settings/inbox/course-comments/<room-uuid>`，把末段 uuid 交给 `list-chat-messages --room-uuid <uuid>`。`action_web_url` 里的 `#message_<id>` 是根消息 id，要看 thread 时传给 `list-chat-replies --parent-message-id <id>`。
 
 ## 安全边界
 
@@ -123,6 +141,7 @@ open data/index.html
 - 不打印、总结或写入 tracked 文件中的 JWT、Cookie、CSRF token 或原始 cURL。
 - `.env` 和 `data/` 都是本地私密状态，不能提交。
 - `fetch` 和 `count` 是 GET。
+- `course-lessons`、`course-lesson`、`lesson-comments` 都是只读 GET。
 - `reset-count` 默认 dry-run；live 执行必须同时使用 `--execute --confirm RESET-COUNT`，并获得用户对当次动作的明确授权。
 - `reset-count` 与 mark-all-read 是不同 mutation。当前没有 mark-all-read 能力，不得根据内部 endpoint 名字猜测或代替实现。
 

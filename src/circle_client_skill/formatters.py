@@ -207,6 +207,84 @@ def format_chat_messages_table(messages: list, pagination: dict) -> str:
     return f"{summary}\n{table}"
 
 
+def format_course_lessons(sections: list) -> str:
+    rows = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        for lesson in section.get("lessons") or []:
+            if not isinstance(lesson, dict):
+                continue
+            rows.append(
+                (
+                    section.get("id"),
+                    lesson.get("id"),
+                    lesson.get("name"),
+                    str(lesson.get("content_kind") or ""),
+                    "yes" if lesson.get("completed") else "no",
+                    "yes" if section.get("is_dripped") else "no",
+                )
+            )
+    return _table(
+        rows,
+        [
+            ("SECTION", None),
+            ("LESSON", None),
+            ("NAME", 60),
+            ("KIND", 8),
+            ("DONE", 4),
+            ("DRIP", 4),
+        ],
+    )
+
+
+def _lesson_body(lesson: dict[str, Any]) -> dict[str, Any]:
+    for key in ("rich_text_body", "serialized_rich_text_body"):
+        value = lesson.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def format_lesson_card(lesson: dict) -> str:
+    body = _lesson_body(lesson)
+    text = str(body.get("circle_ios_fallback_text") or "").strip() or _body_text(lesson)
+    attachments = [
+        str(item.get("filename", ""))
+        for item in body.get("attachments") or []
+        if isinstance(item, dict) and item.get("filename")
+    ]
+    lines = [
+        f"# {lesson.get('name', '')}  (id={lesson.get('id', '')})",
+        (
+            f"status: {lesson.get('status', '')}   "
+            f"completed: {str(bool(lesson.get('completed'))).lower()}   "
+            f"dripped: {str(bool(lesson.get('is_dripped'))).lower()}"
+        ),
+        (
+            f"featured_media: {str(bool(lesson.get('featured_media_enabled'))).lower()}   "
+            f"comments_enabled: {str(bool(lesson.get('comments_enabled'))).lower()}"
+        ),
+        f"chat_room_uuid: {lesson.get('chat_room_uuid', '')}",
+    ]
+    if attachments:
+        lines.append("files: " + ", ".join(attachments))
+    lines.extend(["---", text, "---"])
+    return "\n".join(lines)
+
+
+def format_comment_threads(threads: dict) -> str:
+    parts = []
+    for root_id, replies in threads.items():
+        if not replies:
+            continue
+        parts.append(
+            f"thread {root_id}  ({len(replies)} replies)\n"
+            f"{format_chat_messages_table(replies, {})}"
+        )
+    return "\n\n".join(parts)
+
+
 def format_count(count: int) -> str:
     return str(count)
 

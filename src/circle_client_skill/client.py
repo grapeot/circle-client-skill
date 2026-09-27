@@ -180,6 +180,20 @@ class CircleClient:
         """List topics (tags) for a space."""
         return self._request("GET", f"{self.settings.base_url}/internal_api/spaces/{space_id}/topics")
 
+    # ---- Course ----
+
+    def get_course_lesson(self, space_id: int, section_id: int, lesson_id: int) -> dict[str, Any]:
+        """Get one course lesson (content, completion state, discussion room UUID).
+
+        Course lesson lookup requires the sectioned path; the section-less
+        variant is not part of the member-session contract.
+        """
+        return self._request(
+            "GET",
+            f"{self.settings.base_url}/internal_api/courses/{space_id}"
+            f"/sections/{section_id}/lessons/{lesson_id}",
+        )
+
     # ---- Posts ----
 
     def list_posts(

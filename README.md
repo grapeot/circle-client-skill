@@ -1,6 +1,6 @@
 # Circle Client Skill
 
-Circle Client Skill 是一个非官方、local-first 的 Circle 成员客户端。它通过普通成员的浏览器 session（cookie + CSRF）操作 Circle 社区——不需要 Admin API token。支持通知导出、帖子/评论/聊天/图片的完整 CRUD，所有写操作默认 dry-run。
+Circle Client Skill 是一个非官方、local-first 的 Circle 成员客户端。它通过普通成员的浏览器 session（cookie + CSRF）操作 Circle 社区——不需要 Admin API token。支持通知导出、课程 lesson 正文与讨论的只读访问，以及帖子/评论/聊天/图片的完整 CRUD，所有写操作默认 dry-run。
 
 ## 安装
 

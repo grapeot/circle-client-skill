@@ -24,8 +24,11 @@ from .config import (
 from .formatters import (
     format_auth_status,
     format_chat_messages_table,
+    format_comment_threads,
     format_count,
+    format_course_lessons,
     format_fetch_summary,
+    format_lesson_card,
     format_mutation_dryrun,
     format_mutation_result,
     format_post_card,
@@ -659,6 +662,100 @@ def cmd_unreplied(args: argparse.Namespace) -> None:
     print(json.dumps(messages, ensure_ascii=False, indent=2) if args.json else format_unreplied_table(messages))
 
 
+def cmd_course_lessons(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    space = CircleClient(settings, timeout=args.timeout).get_space(args.space_id)
+    sections = space.get("course_sections") or []
+    if not sections:
+        raise ValueError(f"Space {args.space_id} has no course_sections; not a course space?")
+    if args.json:
+        _print_json({"success": True, "space_id": args.space_id, "sections": sections})
+    else:
+        print(format_course_lessons(sections))
+
+
+def cmd_course_lesson(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    lesson = CircleClient(settings, timeout=args.timeout).get_course_lesson(
+        args.space_id, args.section_id, args.lesson_id
+    )
+    print(json.dumps(lesson, ensure_ascii=False, indent=2) if args.json else format_lesson_card(lesson))
+
+
+def cmd_lesson_comments(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    client = CircleClient(settings, timeout=args.timeout)
+    lesson = client.get_course_lesson(args.space_id, args.section_id, args.lesson_id)
+    room_uuid = lesson.get("chat_room_uuid")
+    if not isinstance(room_uuid, str) or not room_uuid:
+        raise ValueError(
+            f"Lesson {args.lesson_id} has no discussion room "
+            f"(comments_enabled={lesson.get('comments_enabled')})"
+        )
+    previous_per_page, next_per_page = _directional_page_sizes(args)
+    result = client.list_chat_messages(
+        chat_room_uuid=room_uuid,
+        previous_per_page=previous_per_page,
+        next_per_page=next_per_page,
+        cursor=args.cursor,
+    )
+    # The chat endpoint can ignore per-page params on small rooms and return
+    # every root at once; enforce the requested window client-side so
+    # --previous-per-page / --next-per-page behave as documented.
+    records_asc = list(result.get("records", []))
+    window = previous_per_page if args.direction == "previous" else next_per_page
+    if window and len(records_asc) > window:
+        records_asc = (
+            records_asc[-window:] if args.direction == "previous" else records_asc[:window]
+        )
+    # Same output contract as list-chat-messages: feed view is newest-first
+    # while pagination cursors keep the ascending original page.
+    result = {**result, "records": list(reversed(records_asc))}
+    roots = result["records"]
+    if not args.with_threads:
+        if args.json:
+            _print_json(
+                {
+                    "success": True,
+                    "lesson_id": args.lesson_id,
+                    "chat_room_uuid": room_uuid,
+                    **result,
+                }
+            )
+        else:
+            print(format_chat_messages_table(roots, result))
+        return
+    threads: dict[int, list] = {}
+    for root in roots:
+        if not root.get("replies_count"):
+            continue
+        page = client.fetch_chat_replies(
+            room_uuid, root["id"], next_per_page=args.threads_per_page
+        )
+        threads[root["id"]] = page.get("records", [])
+    if args.json:
+        _print_json(
+            {
+                "success": True,
+                "lesson_id": args.lesson_id,
+                "chat_room_uuid": room_uuid,
+                "total_count": result.get("total_count"),
+                "first_id": result.get("first_id"),
+                "last_id": result.get("last_id"),
+                "has_previous_page": result.get("has_previous_page"),
+                "has_next_page": result.get("has_next_page"),
+                "roots": roots,
+                "threads": threads,
+            }
+        )
+    else:
+        print(format_chat_messages_table(roots, result))
+        rendered = format_comment_threads(threads)
+        if rendered:
+            print()
+            print(rendered)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="circle-client",
@@ -849,6 +946,41 @@ def build_parser() -> argparse.ArgumentParser:
     unreplied.add_argument("--limit", type=int, default=50)
     unreplied.add_argument("--timeout", type=float, default=30)
     unreplied.set_defaults(handler=cmd_unreplied)
+
+    course_lessons = subparsers.add_parser(
+        "course-lessons", help="List sections and lessons of a course space"
+    )
+    course_lessons.add_argument("-s", "--space-id", type=int, required=True)
+    course_lessons.add_argument("--timeout", type=float, default=30)
+    course_lessons.set_defaults(handler=cmd_course_lessons)
+
+    course_lesson = subparsers.add_parser(
+        "course-lesson", help="Get one course lesson with full content"
+    )
+    course_lesson.add_argument("-s", "--space-id", type=int, required=True)
+    course_lesson.add_argument("--section-id", type=int, required=True)
+    course_lesson.add_argument("--lesson-id", type=int, required=True)
+    course_lesson.add_argument("--timeout", type=float, default=30)
+    course_lesson.set_defaults(handler=cmd_course_lesson)
+
+    lesson_comments = subparsers.add_parser(
+        "lesson-comments", help="List lesson discussion comments (newest first)"
+    )
+    lesson_comments.add_argument("-s", "--space-id", type=int, required=True)
+    lesson_comments.add_argument("--section-id", type=int, required=True)
+    lesson_comments.add_argument("--lesson-id", type=int, required=True)
+    lesson_comments.add_argument("--cursor", type=int, default=None, help="Numeric message id cursor")
+    lesson_comments.add_argument("--direction", choices=("previous", "next"), default="previous")
+    lesson_comments.add_argument("--previous-per-page", type=int, default=20, help="Number of older messages to fetch")
+    lesson_comments.add_argument("--next-per-page", type=int, default=0, help="Number of newer messages to fetch")
+    lesson_comments.add_argument(
+        "--with-threads",
+        action="store_true",
+        help="Fetch one page of replies for each root with replies_count > 0 (N+1, opt-in)",
+    )
+    lesson_comments.add_argument("--threads-per-page", type=int, default=50)
+    lesson_comments.add_argument("--timeout", type=float, default=30)
+    lesson_comments.set_defaults(handler=cmd_lesson_comments)
 
     # Accept the global flag after a subcommand too, matching the documented examples.
     for subparser in subparsers.choices.values():
