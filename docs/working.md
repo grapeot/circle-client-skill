@@ -2,6 +2,14 @@
 
 ## Changelog
 
+### 2026-10-03 Probe tooling
+
+- 新增 `src/circle_client_skill/probe/`：`ProbeSession`（从 `.env` 注入 cookie 的 headless Chromium，禁用 service worker，`finally` 里逐个关闭 page/context/browser/Playwright）、`RouteGuard`（拦截发往 community host 的非 GET 请求，默认放行列表为空，按 `"[METHOD] /path"` + fnmatch 放行，记录 `blocked`）、`RequestCapture`（只记 `/internal_api/` XHR/fetch，`dump()` 写盘前脱敏）、`Redactor`（字段名、URL 签名参数和 `.env` 里实际凭证值三层替换）。
+- 只读示例 `python -m circle_client_skill.probe --path ... --out data/probe`：截图、导出可见表单控件（跳过 hidden/password）、导出脱敏请求日志。没有放行写请求的参数。
+- 不加活动写命令，也不加 list-events 命令；活动写操作按 events 参考里的原则走浏览器 UI。
+- Live 只读 smoke：headless 打开社区首页，落到 feed、无 401、无登录链接，判定已登录；guard 拦下的都是 analytics、Cloudflare beacon 和 `community_switchers/invalidate_cache` 这类页面自带的 POST，页面照常可用。输出没有写进仓库。
+- 新增 `tests/test_probe.py`（23 个离线测试）。
+
 ### 2026-10-03 Events reference (docs only)
 
 - 新增 `skills/references/events.md`，记录以 admin 身份观察到的活动流程：Create event 对话框的 Save 发 `POST /internal_api/spaces/<id>/events`，`status` 写死 `"draft"`；发布要进草稿编辑页（"…" → Edit event）点 Publish。字段、Location 五种类型、时区解释、六个 tab、通知默认值、Publish 确认框、只读和写 endpoint 都在里面。
@@ -115,4 +123,5 @@
 - Circle chat 用 cursor-based pagination（`id` + `previous_per_page` + `next_per_page`），不是 page numbers。历史方向以 `first_id` 为 cursor，未来方向以 `last_id` 为 cursor；相邻页含 anchor overlap，必须按 message ID 去重。
 - 编辑聊天消息的 PATCH 不带 participant id；发送的 POST 仍然要带。mention sgid 是服务端签名，`/users/mentions.json` 返回的是 JSON 数组，不是 `{records: ...}` envelope。
 - chat 消息只携带被 mention 者的 sgid，不携带作者 sgid。`circle_ios_fallback_text` 会压平段落并丢掉 mention，读正文要用 `rich_text_body.body.content`。
+- 打开任何社区页面都会触发前端自己的写请求（analytics、Cloudflare beacon、cache invalidation、space 的 `reset_unread_count`）。probe 的 `guard.blocked` 里出现这些是正常的，判断有没有意外写入要看具体 endpoint。
 - 活动的「建」和「发通知」是两个动作：Save 只建草稿，发布邮件只在 Publish 那一刻发且不能重发。通知开关默认全开，而且只在草稿编辑页出现，Create 对话框里看不到。只有 admin 能看到的 test space 若有非 admin 成员，Publish 也会通知他们。

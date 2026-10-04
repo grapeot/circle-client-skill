@@ -10,6 +10,7 @@
 - Formatters：空列表输出表头、长字段截断、tiptap 纯文本提取（嵌套 content、缺失 text node、非 dict 节点）。
 - `unreplied`：mock `scan_chat_roots` + `get_space`，验证 `thread_participants_preview` 匹配逻辑、分页遍历和 dedup。
 - Chat 分页：`--cursor`（数字 id）参数传递、`--direction` previous/next 方向切换、anchor overlap 去重。
+- Probe（`tests/test_probe.py`，Playwright 全部 mock）：guard 拦截发往 community 的非 GET、放行 GET/HEAD/OPTIONS、白名单按 method + path 精确或 glob 匹配、其他 host 不受影响；header/URL/JSON/字面值脱敏，`RequestCapture.dump` 写出的文件不含假凭证；`ProbeSession` 注入 cookie、在 context 上装 guard、禁用 service worker，并在正常退出、body 抛错、setup 失败、某个 close 抛错四种情况下都关闭 page/context/browser/Playwright。
 
 默认测试必须完全离线，不读取 `.env`，不访问 Circle。
 
