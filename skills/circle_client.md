@@ -188,6 +188,32 @@ CLI 没有 `create-event` / `publish-event` 一类命令，也不要为单次需
 
 完整的字段、tab、通知默认值、副作用和 endpoint 见 [`references/events.md`](references/events.md)。
 
+## Probe 工具（headless 观察）
+
+CLI 没覆盖的页面（活动表单、新面板）先用 probe 工具看，不要猜 endpoint。`circle_client_skill.probe` 只做四件事：观察、截图、抓请求、回读状态。需要 `browser` extra（`uv pip install -e '.[browser]'` + `python -m playwright install chromium`）。
+
+```bash
+# 只读示例：打开页面、截图、导出可见表单控件和脱敏后的 internal_api 请求日志
+.venv/bin/python -m circle_client_skill.probe --path /c/example-space --out data/probe --tag example
+```
+
+```python
+from pathlib import Path
+from circle_client_skill.probe import ProbeSession
+
+with ProbeSession(env_path=Path(".env")) as probe:   # 默认 allow=()，纯观察
+    probe.page.goto(probe.url("/c/example-space"), wait_until="domcontentloaded")
+    probe.screenshot(Path("data/probe/example.png"))
+probe.capture.dump(Path("data/probe"), "example")      # 写盘前已脱敏
+print(probe.guard.blocked)                             # 被拦下的写请求（已去 query）
+```
+
+- `ProbeSession` 从现有 `.env` 读 cookie 注入 headless Chromium，不打印凭证；page/context/browser/Playwright 在 `finally` 里逐个关闭，一步失败不影响后面几步。service worker 被禁用，避免绕过路由拦截。
+- `RouteGuard` 装在整个 browser context 上：发往 community host 的非 GET/HEAD/OPTIONS 请求一律 abort 并记进 `guard.blocked`；其他 host（CDN、分析、S3 直传）不管。默认放行列表为空。注意打开页面本身就会触发写请求（`reset_unread_count`、analytics、Cloudflare beacon 等），在 `blocked` 里看到它们是正常的。
+- `RequestCapture` 只记 `/internal_api/` 的 XHR/fetch。`dump()` 写盘前做两层脱敏：Cookie/Authorization/CSRF 等字段名、URL 里的签名参数，以及 `.env` 里实际的 cookie/CSRF/JWT 值，无论出现在哪里都替换成 `[REDACTED]`。响应正文里仍可能有成员姓名等私人数据，所以输出只放 gitignored 的 `data/`。
+- **放宽白名单**：只有当人已经授权一次具体的浏览器写操作时，才给 `ProbeSession(allow=...)` 传规则，而且只放那一个 endpoint，例如 `allow=("POST /internal_api/spaces/1111/events",)`。规则格式是 `"[METHOD] /path"`，path 按 fnmatch 匹配、忽略 query，`*` 可跨 `/`；不写 method 表示任意非 GET 方法。不要放 `/internal_api/*` 这种大范围规则。上传封面这类连带请求要逐个列出（例如 `"POST /internal_api/direct_uploads"`）。
+- 活动的写操作和 Publish 仍按上面的原则走浏览器 UI；probe 工具没有任何活动写命令。
+
 ## 输出与 AI Filter
 
 Fetch JSON 是 source of truth，保留 Circle 返回的完整 notification object。Markdown/CSV 只是阅读视图。用户要求按作者、时间、类型、关键词或重要性筛选时，Agent 可以现场读取 JSON 并编写一次性分析代码；不要为了单次筛选扩张 CLI contract。

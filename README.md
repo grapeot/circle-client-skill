@@ -66,6 +66,16 @@ circle-client mark-notification-read 9000001
 
 Circle 活动的创建流程、字段、通知默认值和观察到的 endpoint 记录在 `skills/references/events.md`。本工具不提供活动写命令：创建、编辑和发布活动都在浏览器 UI 里完成，Publish 由人亲手点；本仓库里与活动相关的脚本只用于观察和回读。
 
+## Probe 工具
+
+`circle_client_skill.probe` 是观察页面用的 headless 工具（需要 `browser` extra）：把 `.env` 里的 cookie 注入 headless Chromium，装一个 route guard 拦下所有发往社区的非 GET 请求（默认不放行任何写请求），并把 internal API 请求脱敏后写到 gitignored 的 `data/`。
+
+```bash
+python -m circle_client_skill.probe --path /c/example-space --out data/probe --tag example
+```
+
+用法、放宽白名单的规则和脱敏范围见 `skills/circle_client.md` 的「Probe 工具」一节。
+
 ## Agent Skill
 
 完整 CLI 命令文档位于 `skills/circle_client.md`。AI agent（Codex、Claude Code、Cursor、OpenCode 等）读取该 skill 文件即可了解所有可用命令和参数。

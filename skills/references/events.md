@@ -10,7 +10,7 @@
 - **Publish 永远由人亲手点。** 发布会给 space 成员发邮件，而且这一下无法撤回（见下文「发布与通知」）。
 - 已有的通知类命令（`fetch`、`count`、`mark-notification-read` 等）照旧走 CLI，不受这条原则影响。
 - **往真实社区的 space 写数据，必须由用户在主会话里明确授权。** 主 agent 转述给 sub-agent 的授权，可能会被 agent 的权限系统拦下，这是预期行为，不要绕过。先在 test space 里试。
-- probe 脚本必须装 route guard：发往 community host 的非 GET 请求一律拦截，只有调用方显式列出的 endpoint 才放行；默认放行列表为空，也就是纯观察。
+- probe 脚本必须装 route guard：发往 community host 的非 GET 请求一律拦截，只有调用方显式列出的 endpoint 才放行；默认放行列表为空，也就是纯观察。`circle_client_skill.probe` 提供现成的 session、guard 和脱敏抓包，用法见 `skills/circle_client.md` 的「Probe 工具」一节。
 
 ## 创建流程：两步走
 
@@ -112,7 +112,7 @@ Save 之后打开活动页，在 **Share** 旁边的 "…" 菜单里选 **Edit e
 
 ## 推荐做法
 
-1. 用装了 route guard 的 headless 浏览器在 test space 里观察表单和默认值，截图留在 gitignored 的 `data/`。
+1. 用 `circle_client_skill.probe`（装了 route guard 的 headless 浏览器）在 test space 里观察表单和默认值，截图和请求日志留在 gitignored 的 `data/`。
 2. 在浏览器里由人建草稿；如果用户明确授权一个浏览器 session 代为填写，也只放行 `POST .../events` 这一个 endpoint。
 3. 用只读 GET 回读草稿，核对 UTC 时间、`location_type`、通知开关。
 4. 由人在草稿编辑页检查 Notifications / Reminders，然后亲手点 Publish。
