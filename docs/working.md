@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-03 Events reference (docs only)
+
+- 新增 `skills/references/events.md`，记录以 admin 身份观察到的活动流程：Create event 对话框的 Save 发 `POST /internal_api/spaces/<id>/events`，`status` 写死 `"draft"`；发布要进草稿编辑页（"…" → Edit event）点 Publish。字段、Location 五种类型、时区解释、六个 tab、通知默认值、Publish 确认框、只读和写 endpoint 都在里面。
+- 确立执行原则并写进 root skill：活动相关脚本只做 probe，活动写操作走浏览器 UI，Publish 永远由人点；CLI 不加活动写命令。往真实 space 写需要主会话里用户的明确授权。
+- 观察到的副作用：打开 space 会 `POST .../reset_unread_count`；上传封面会经 `direct_uploads` 建 blob；成员搜索是 `POST /internal_api/search/community_members`。
+
 ### 2026-09-27 Single notification mark-as-read
 
 - 新 mutation `mark-notification-read <notification_id>`：`PATCH /internal_api/notifications/<id>/mark_as_read`，cookie + X-CSRF-Token，200/204 均视为成功。默认 dry-run，live 必须 `--execute --confirm MARK-NOTIFICATION-READ`。URL 由 `notifications_url` 派生，不需要新 config 字段。
@@ -109,3 +115,4 @@
 - Circle chat 用 cursor-based pagination（`id` + `previous_per_page` + `next_per_page`），不是 page numbers。历史方向以 `first_id` 为 cursor，未来方向以 `last_id` 为 cursor；相邻页含 anchor overlap，必须按 message ID 去重。
 - 编辑聊天消息的 PATCH 不带 participant id；发送的 POST 仍然要带。mention sgid 是服务端签名，`/users/mentions.json` 返回的是 JSON 数组，不是 `{records: ...}` envelope。
 - chat 消息只携带被 mention 者的 sgid，不携带作者 sgid。`circle_ios_fallback_text` 会压平段落并丢掉 mention，读正文要用 `rich_text_body.body.content`。
+- 活动的「建」和「发通知」是两个动作：Save 只建草稿，发布邮件只在 Publish 那一刻发且不能重发。通知开关默认全开，而且只在草稿编辑页出现，Create 对话框里看不到。只有 admin 能看到的 test space 若有非 admin 成员，Publish 也会通知他们。

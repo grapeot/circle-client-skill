@@ -180,6 +180,14 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 - `mark-notification-read <id>` 把单条通知标记已读（`PATCH /internal_api/notifications/<id>/mark_as_read`，cookie+CSRF，200/204 均视为成功）；默认 dry-run，live 必须 `--execute --confirm MARK-NOTIFICATION-READ` 且当次授权。已读是服务端状态：`read_at` 落库后该通知从 unread fetch 中消失、`count` 下降；只读 comment 页面不会写 `read_at`，只有 inbox 里点开通知或本命令才会。
 - `reset-count` 与 mark-all-read 是不同 mutation。当前没有 mark-all-read 能力（`mark-notification-read` 是单条，不是 mark-all），不得根据内部 endpoint 名字猜测或代替实现。
 
+## 活动（event）
+
+**原则：本 skill 里与活动相关的脚本只用于 probe（观察表单、默认值、回读状态）。活动的写操作（创建、编辑、发布）走浏览器 UI，由人操作或由用户明确授权的浏览器 session 操作，不通过 CLI/API 命令。Publish 永远由人亲手点。** 通知类命令照旧走 CLI。往真实社区 space 写数据需要用户在主会话里明确授权；转述给 sub-agent 的授权可能被 agent 权限系统拦下，先在 test space 里试。
+
+CLI 没有 `create-event` / `publish-event` 一类命令，也不要为单次需求临时写一个。几个最容易踩的事实：Save 只建草稿（`status` 写死 `"draft"`）；发布邮件、确认邮件、提醒邮件的开关只在草稿编辑页里，默认全开；发布邮件只在 Publish 那一刻发，之后无法重发；secret test space 里有非 admin 成员时，Publish 一样会发通知；表单时间按成员资料时区解释。
+
+完整的字段、tab、通知默认值、副作用和 endpoint 见 [`references/events.md`](references/events.md)。
+
 ## 输出与 AI Filter
 
 Fetch JSON 是 source of truth，保留 Circle 返回的完整 notification object。Markdown/CSV 只是阅读视图。用户要求按作者、时间、类型、关键词或重要性筛选时，Agent 可以现场读取 JSON 并编写一次性分析代码；不要为了单次筛选扩张 CLI contract。
