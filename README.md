@@ -62,6 +62,10 @@ circle-client mark-notification-read 9000001
 
 完整参数见 `skills/circle_client.md`。
 
+## 活动（event）
+
+Circle 活动的创建流程、字段、通知默认值和观察到的 endpoint 记录在 `skills/references/events.md`。本工具不提供活动写命令：创建、编辑和发布活动都在浏览器 UI 里完成，Publish 由人亲手点；本仓库里与活动相关的脚本只用于观察和回读。
+
 ## Agent Skill
 
 完整 CLI 命令文档位于 `skills/circle_client.md`。AI agent（Codex、Claude Code、Cursor、OpenCode 等）读取该 skill 文件即可了解所有可用命令和参数。
