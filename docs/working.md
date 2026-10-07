@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### 2026-10-07 Recording subtitles and chapters
+
+- `skills/references/recording_posts.md` 新增第六节「视频字幕与章节」：帖子发布后，在帖子页视频右上角的 Customize media 对话框里上传自制字幕（Enable transcription → Upload a custom transcript → `input[name="transcript.user_webvtt_file"]`）、加章节（pause + 设 `currentTime` 后点 "Add at MM:SS"，`input[name=title]` 填标题回车），Save 后用 `video.textTracks` 回读 captions/chapters 轨的 cue 数、seek 抽查 `activeCues`、截图看双行渲染和进度条分段。坑表补了自动转写语言识别错、`[role=dialog]` 误匹配 media-error-dialog、视频在 shadow DOM、窗口全关后会话丢失等。
+- 执行原则：Customize media 的 Save 是对已发布帖子的写操作，要用户对这一次修改明确授权，Save 后立刻回读。写进 root skill 和 AGENTS.md。
+- 新增 `src/circle_client_skill/subtitles.py`（纯离线、不联网、不加 CLI 命令）：`parse_vtt`（可拆 Zoom 的 `Name: ` 前缀）、`remap_cues`（剪掉区间内的 cue 丢弃、之后前移、截断点之后丢弃、末条夹到视频时长）、`split_times` / `build_bilingual_vtt`（按英文长度比例在原 cue 时间内分配子段、相邻 cue 留 0.05 s 不重叠、中上英下两行）、`validate_vtt`（单调、正时长、无重叠、cue 数、残留错误拼写）。翻译和 ASR 纠错由 agent 做，不在代码里。
+- 新增 `tests/test_subtitles.py`（离线，合成 fixture）。本地用一次真实录像的数据核对过：映射结果和组装出的 .vtt 与当时手写脚本的产物逐字节一致；真实数据不在仓库里。
+
 ### 2026-10-07 Recording posts and visible-browser writes
 
 - 新增 `skills/references/recording_posts.md`：活动回放帖的完整工作流。包括怎样从回放空间统计惯例（置顶说明帖、最近十几帖逐项计数）、帖子结构（中文第一人称整理文、标题 `<活动标题>｜<系列名>回放` 且系列名不写死、原生视频、`MM:SS｜标题` 观看导航、资源链接、评论邀请、不放优惠码、2.8:1 封面）、录像里他人发言的确认与剪辑及时间戳平移、起草 → 事实核对 → voice rewrite → surgical fix，以及可见浏览器填写编辑器的流程、核对清单和坑。
@@ -134,4 +141,7 @@
 - 打开任何社区页面都会触发前端自己的写请求（analytics、Cloudflare beacon、cache invalidation、space 的 `reset_unread_count`）。probe 的 `guard.blocked` 里出现这些是正常的，判断有没有意外写入要看具体 endpoint。
 - 通过 `connect_over_cdp` 连接的浏览器不接受 Playwright `set_input_files` 传大于 50 MB 的文件；CDP `DOM.setFileInputFiles` 传本地路径没有这个限制。Circle 的 Add cover 不触发 file chooser，而是打开带独立 file input 的对话框。
 - 往 tiptap 编辑器里放长文，合成粘贴受光标位置影响（起始 H2 会丢），对话框里键盘全选清空也不可靠；直接用 `el.editor.commands.setContent` / `insertContentAt` 组装，再用 `editor.getJSON()` 回读。
+- Circle 视频的自动转写会认错语言（英文讲座被转成中文）。英文讲座上传自制双语 WebVTT；Zoom 的 `transcript.vtt` 比 `cc.vtt` 的时间戳准。剪辑过的视频，字幕时间轴要和章节时间戳一样按剪辑映射。
+- Circle 的视频播放器在 shadow DOM 里，内部还有一个 role=dialog 的 media-error-dialog；找 video 要递归 `shadowRoot`，找对话框要按 accessible name。
+- 可见 Chrome 的窗口全部关掉后，session cookie 丢失，`connect_over_cdp` 报 "Browser context management is not supported"；先 `PUT /json/new?<url>` 开 tab 再连并重新注入 cookie。
 - 活动的「建」和「发通知」是两个动作：Save 只建草稿，发布邮件只在 Publish 那一刻发且不能重发。通知开关默认全开，而且只在草稿编辑页出现，Create 对话框里看不到。只有 admin 能看到的 test space 若有非 admin 成员，Publish 也会通知他们。
