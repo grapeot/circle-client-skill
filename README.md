@@ -66,6 +66,10 @@ circle-client mark-notification-read 9000001
 
 Circle 活动的创建流程、字段、通知默认值和观察到的 endpoint 记录在 `skills/references/events.md`。本工具不提供活动写命令：创建、编辑和发布活动都在浏览器 UI 里完成，Publish 由人亲手点；本仓库里与活动相关的脚本只用于观察和回读。
 
+## 发帖与活动回放帖
+
+发帖、编辑帖子不走 CLI。`circle-client open-browser --path /c/example-space` 启动一个可见的 Chrome（独立 profile 和调试端口），注入 `.env` 里的会话后断开；agent 再通过 CDP 把编辑器填好，停在 Publish 之前，由人修改并亲手发布。命令本身不写任何 Circle 数据，端口或 profile 已被占用时拒绝启动。活动回放帖的惯例归纳、写作流程和编辑器操作细节见 `skills/references/recording_posts.md`。
+
 ## Probe 工具
 
 `circle_client_skill.probe` 是观察页面用的 headless 工具（需要 `browser` extra）：把 `.env` 里的 cookie 注入 headless Chromium，装一个 route guard 拦下所有发往社区的非 GET 请求（默认不放行任何写请求），并把 internal API 请求脱敏后写到 gitignored 的 `data/`。
