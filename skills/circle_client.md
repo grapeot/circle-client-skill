@@ -196,7 +196,9 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 .venv/bin/circle-client open-browser --path /c/example-recordings --port 9333 --profile-dir data/visible_browser/profile
 ```
 
-活动回放帖的完整流程（从空间归纳惯例、帖子结构与标题模板 `<活动标题>｜<系列名>回放`、录像里他人发言的处理与时间戳平移、起草 → 事实核对 → voice rewrite → surgical fix、编辑器选择器、封面对话框、大视频用 CDP `DOM.setFileInputFiles`、用 tiptap commands 组装正文、交付前核对清单和坑）见 [`references/recording_posts.md`](references/recording_posts.md)。
+帖子发布后给视频补字幕和章节（帖子页视频右上角 Customize media 对话框）是对已发布帖子的修改：要用户对这一次修改明确授权，agent 点 Save 后立刻用 `video.textTracks` 回读。英文讲座不要用 Circle 的自动转写，上传自制的中英双语 .vtt；时间轴映射、按比例切分、双语组装和校验用离线模块 `circle_client_skill.subtitles`。
+
+活动回放帖的完整流程（从空间归纳惯例、帖子结构与标题模板 `<活动标题>｜<系列名>回放`、录像里他人发言的处理与时间戳平移、起草 → 事实核对 → voice rewrite → surgical fix、编辑器选择器、封面对话框、大视频用 CDP `DOM.setFileInputFiles`、用 tiptap commands 组装正文、交付前核对清单、发布后的双语字幕与章节、坑）见 [`references/recording_posts.md`](references/recording_posts.md)。
 
 ## 活动（event）
 

@@ -7,6 +7,7 @@
 ## 结构
 
 - `src/circle_client_skill/`：CLI、认证导入、只读客户端和渲染逻辑。
+- `src/circle_client_skill/subtitles.py`：录像双语字幕的离线工具（WebVTT 解析、按剪辑映射时间轴、按比例切分、双语组装、校验），不联网。
 - `src/circle_client_skill/probe/`：headless 观察工具（cookie 注入 session、route guard、脱敏抓包），Playwright 是 optional extra，测试全部 mock。
 - `skills/circle_client.md`：唯一 canonical root skill。
 - `docs/`：PRD、RFC、测试策略和持续工作记录。
@@ -33,6 +34,7 @@ uv pip install -e '.[dev]'
 - probe 工具的 route guard 默认放行列表必须为空；只有人授权了某次具体写操作，才在调用处放行那一个 endpoint。probe 输出只进 gitignored `data/`。
 - 活动（event）相关脚本只做 probe（观察、截图、回读）。活动的创建/编辑/发布走浏览器 UI，Publish 由人点；不要给 CLI 加活动写命令。详见 `skills/references/events.md`。
 - 帖子的写操作（发帖、编辑帖子）走人类可见的浏览器：agent 用 `open-browser` 开独立 profile 的 Chrome 填好编辑器后停住，不点 Publish、不点 Save draft，由人发布。`open-browser` 不得附着到已有浏览器（端口被占或 profile 被锁就拒绝）。详见 `skills/references/recording_posts.md`。
+- 已发布帖子的视频设置（Customize media：字幕、章节、封面帧）是写操作：只有用户对这一次修改明确授权后，agent 才点 Save，并立刻回读 `video.textTracks`。
 - 所有输出和错误必须遮罩 Authorization、Cookie 与 CSRF 等凭证。
 - Circle internal API 没有稳定公开 contract。保留底层 HTTP status 和脱敏错误，但不要把响应中的私人通知全文打印到错误信息。
 - 行为、CLI contract 或安全边界变化后更新 `docs/working.md`。
