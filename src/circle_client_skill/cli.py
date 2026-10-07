@@ -33,12 +33,15 @@ from .formatters import (
     format_mentions_table,
     format_mutation_dryrun,
     format_mutation_result,
+    format_open_plan,
+    format_open_result,
     format_post_card,
     format_posts_table,
     format_space_card,
     format_spaces_table,
     format_unreplied_table,
 )
+from .opener import CATEGORIES, default_opener, open_sequentially, plan_targets
 from .render import render_csv, render_html, render_markdown
 from .rich_text import build_rich_text_body
 
@@ -393,6 +396,40 @@ def cmd_render(args: argparse.Namespace) -> None:
             indent=2,
         )
     )
+
+
+def cmd_open_notifications(args: argparse.Namespace) -> None:
+    document = json.loads(Path(args.input).read_text(encoding="utf-8"))
+    plan = plan_targets(
+        document,
+        category=args.category,
+        order=args.order,
+        dedupe=args.dedupe,
+    )
+    targets = plan["targets"]
+    if args.execute:
+        if not args.confirm == "OPEN-NOTIFICATIONS":
+            raise ValueError("Live execution requires --confirm OPEN-NOTIFICATIONS")
+        if not targets:
+            raise ValueError("No openable notification URLs matched the requested category")
+        opener = args.opener or default_opener()
+        if not opener:
+            raise OSError("No URL opener found (looked for 'open' and 'xdg-open'); pass --opener")
+        outcome = open_sequentially(
+            targets,
+            interval=args.interval,
+            opener=opener,
+            background=args.background,
+        )
+        result = {"success": True, "dry_run": False, **{k: plan[k] for k in ("category", "host")}, **outcome}
+        if args.json:
+            _print_json(result)
+        else:
+            print(format_open_result(outcome))
+    elif args.json:
+        _print_json({"success": True, "dry_run": True, **plan})
+    else:
+        print(format_open_plan(plan))
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
@@ -986,6 +1023,39 @@ def build_parser() -> argparse.ArgumentParser:
     mark_notification_read.add_argument("--confirm")
     mark_notification_read.add_argument("--timeout", type=float, default=30)
     mark_notification_read.set_defaults(handler=cmd_mark_notification_read)
+
+    open_notifications = subparsers.add_parser(
+        "open-notifications",
+        help="Open notification URLs in the browser (dry-run unless --execute)",
+    )
+    open_notifications.add_argument("--input", default="data/notifications.json")
+    open_notifications.add_argument("--category", choices=CATEGORIES, default="lesson_comments")
+    open_notifications.add_argument("--interval", type=float, default=3.0)
+    open_notifications.add_argument("--order", choices=("newest", "oldest"), default="newest")
+    open_notifications.add_argument(
+        "--dedupe",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Collapse notifications that point at the same URL (default: on)",
+    )
+    open_notifications.add_argument(
+        "-g",
+        "--background",
+        action="store_true",
+        help="Open tabs in the background instead of stealing focus",
+    )
+    open_notifications.add_argument(
+        "--opener",
+        default=None,
+        help="URL opener executable (default: auto-detect 'open' or 'xdg-open')",
+    )
+    open_notifications.add_argument(
+        "--execute",
+        action="store_true",
+        help="Actually open the URLs; without it the command only prints the plan",
+    )
+    open_notifications.add_argument("--confirm")
+    open_notifications.set_defaults(handler=cmd_open_notifications)
 
     render = subparsers.add_parser("render", help="Render a fetch artifact")
     render.add_argument("--input", required=True)

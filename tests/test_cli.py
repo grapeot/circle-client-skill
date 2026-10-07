@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 
+import pytest
+
 from circle_client_skill import cli
 
 
@@ -237,3 +239,103 @@ def test_mark_notification_read_parser_and_dry_run(monkeypatch, capsys) -> None:
     positioned = parser.parse_args(["mark-notification-read", "9000002", "--env-file", ".env"])
     assert positioned.notification_id == 9000002
     assert positioned.env_file == ".env"
+
+
+OPEN_DOCUMENT = {
+    "fetched_at": "2026-01-01T00:00:00Z",
+    "source": {"host": "community.example.com", "notification_group": "inbox"},
+    "notifications": [
+        {
+            "id": 1,
+            "created_at": "2026-01-01T00:00:00Z",
+            "action": "course_comment",
+            "notifiable_title": "Alice posted a comment on your lesson",
+            "action_web_url": "https://community.example.com/c/ai/lessons/1#message_11",
+        },
+        {
+            "id": 2,
+            "created_at": "2026-01-02T00:00:00Z",
+            "action": "course_comment",
+            "notifiable_title": "Bob posted a comment on your lesson",
+            "action_web_url": "https://community.example.com/c/coding/lessons/2#message_22",
+        },
+    ],
+}
+
+
+def _open_args(tmp_path, **overrides):
+    input_path = tmp_path / "notifications.json"
+    input_path.write_text(json.dumps(OPEN_DOCUMENT), encoding="utf-8")
+    defaults = dict(
+        input=str(input_path),
+        category="lesson_comments",
+        interval=3.0,
+        order="newest",
+        dedupe=True,
+        background=False,
+        opener=None,
+        execute=False,
+        confirm=None,
+        json=True,
+    )
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
+def test_open_notifications_parser_defaults() -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(["open-notifications"])
+    assert args.category == "lesson_comments"
+    assert args.interval == 3.0
+    assert args.dedupe is True
+    assert args.execute is False
+    assert args.background is False
+    assert args.handler is cli.cmd_open_notifications
+
+
+def test_open_notifications_defaults_to_dry_run(tmp_path, monkeypatch, capsys) -> None:
+    called = {"opened": False}
+    monkeypatch.setattr(cli, "open_sequentially", lambda *a, **k: called.update(opened=True))
+    cli.cmd_open_notifications(_open_args(tmp_path))
+    output = json.loads(capsys.readouterr().out)
+    assert output["dry_run"] is True
+    assert output["category"] == "lesson_comments"
+    assert len(output["targets"]) == 2
+    assert called["opened"] is False
+
+
+def test_open_notifications_execute_requires_confirmation(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(cli, "open_sequentially", lambda *a, **k: {"opened": 0})
+    with pytest.raises(ValueError):
+        cli.cmd_open_notifications(_open_args(tmp_path, execute=True, confirm="WRONG"))
+
+
+def test_open_notifications_execute_calls_opener(tmp_path, monkeypatch, capsys) -> None:
+    captured = {}
+
+    def fake_open(targets, *, interval, opener, background):
+        captured.update(targets=targets, interval=interval, opener=opener, background=background)
+        return {"opened": len(targets), "failed": 0, "urls": [], "failures": [],
+                "interval": interval, "background": background}
+
+    monkeypatch.setattr(cli, "open_sequentially", fake_open)
+    monkeypatch.setattr(cli, "default_opener", lambda: "/usr/bin/open")
+    cli.cmd_open_notifications(
+        _open_args(tmp_path, execute=True, confirm="OPEN-NOTIFICATIONS")
+    )
+    output = json.loads(capsys.readouterr().out)
+    assert output["dry_run"] is False
+    assert output["opened"] == 2
+    assert captured["opener"] == "/usr/bin/open"
+    assert [target["url"] for target in captured["targets"]] == [
+        "https://community.example.com/c/coding/lessons/2#message_22",
+        "https://community.example.com/c/ai/lessons/1#message_11",
+    ]
+
+
+def test_open_notifications_execute_empty_is_error(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(cli, "default_opener", lambda: "/usr/bin/open")
+    args = _open_args(tmp_path, category="comments", execute=True, confirm="OPEN-NOTIFICATIONS")
+    with pytest.raises(ValueError):
+        cli.cmd_open_notifications(args)
+

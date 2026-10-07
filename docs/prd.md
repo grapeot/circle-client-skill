@@ -28,6 +28,7 @@ Circle 普通成员可能积累大量未读通知，但 Circle Admin API 和官�
 - 把通知按 lesson comments、普通 comments、likes、new members 和 other 分类，生成 mobile-friendly 静态 HTML。
 - CLI 输出稳定的机器可读摘要，不打印通知正文或凭证。
 - 默认输出紧凑纯文本（表格/卡片），`--json` flag 输出完整原始 API 响应供下游 pipeline 消费。
+- 把通知按 category 批量在浏览器逐条打开（`open-notifications`），支持时间间隔、去重、后台标签；默认 dry-run，纯本地只读。
 
 ## V1 目标：帖子、聊天与图片
 
