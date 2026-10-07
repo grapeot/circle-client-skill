@@ -423,6 +423,34 @@ def format_mutation_result(result: dict, operation: str) -> str:
     return f"OK: {operation}"
 
 
+def format_open_plan(plan: dict) -> str:
+    targets = plan.get("targets", [])
+    header = (
+        f"OPEN PLAN: {len(targets)} URL(s)   "
+        f"category={plan.get('category', 'all')}   order={plan.get('order', 'newest')}   "
+        f"dedupe={'on' if plan.get('dedupe', True) else 'off'}"
+    )
+    lines = [header]
+    if not targets:
+        lines.append("  (no matching notifications with an openable URL)")
+    else:
+        for index, target in enumerate(targets, 1):
+            lines.append(f"  [{index}/{len(targets)}] {target.get('url', '')}")
+    skipped = plan.get("skipped", [])
+    if skipped:
+        lines.append(f"  skipped {len(skipped)} notification(s) with a non-openable URL")
+    lines.append("Dry-run only. Re-run without --dry-run to open these URLs.")
+    return "\n".join(lines)
+
+
+def format_open_result(result: dict) -> str:
+    return (
+        f"Opened {result.get('opened', 0)} URL(s), {result.get('failed', 0)} failed "
+        f"(interval {result.get('interval', 0)}s, "
+        f"{'background' if result.get('background') else 'foreground'})"
+    )
+
+
 def format_unreplied_table(messages: list) -> str:
     rows = []
     for message in messages:

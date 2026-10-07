@@ -7,6 +7,8 @@ from circle_client_skill.formatters import (
     format_fetch_summary,
     format_mutation_dryrun,
     format_mutation_result,
+    format_open_plan,
+    format_open_result,
     format_post_card,
     format_posts_table,
     format_space_card,
@@ -223,3 +225,34 @@ def test_format_unreplied_table() -> None:
     assert output.startswith("ID  CREATED_AT")
     assert "[Alice]" in output
     assert "Need help" in output
+
+
+def test_format_open_plan_lists_targets_and_skips() -> None:
+    output = format_open_plan(
+        {
+            "category": "lesson_comments",
+            "order": "newest",
+            "dedupe": True,
+            "targets": [
+                {"url": "https://community.example.com/c/ai/lessons/1#message_11"},
+                {"url": "https://community.example.com/c/coding/lessons/2#message_22"},
+            ],
+            "skipped": [{"url": "https://evil.example.com/post/9", "reason": "x"}],
+        }
+    )
+    assert output.startswith("OPEN PLAN: 2 URL(s)")
+    assert "category=lesson_comments" in output
+    assert "[1/2] https://community.example.com/c/ai/lessons/1#message_11" in output
+    assert "skipped 1 notification(s)" in output
+    assert output.endswith("Re-run without --dry-run to open these URLs.")
+
+
+def test_format_open_plan_handles_empty() -> None:
+    output = format_open_plan({"category": "comments", "targets": [], "skipped": []})
+    assert "no matching notifications" in output
+
+
+def test_format_open_result() -> None:
+    output = format_open_result({"opened": 20, "failed": 0, "interval": 3.0, "background": False})
+    assert output == "Opened 20 URL(s), 0 failed (interval 3.0s, foreground)"
+

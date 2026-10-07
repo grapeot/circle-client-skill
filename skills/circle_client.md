@@ -35,6 +35,27 @@ open data/index.html
 
 `render --format html` 已内置按类分组（Lesson comments / Comments / Likes / New members / Other）的响应式可点击列表，可点击跳转原帖；这就是"可视化通知"的标准答案。只有当用户明确要求聚合统计（类型分布、时间轴、TOP 互动者等）且现成 HTML 不满足时，才在 fetch JSON 上写一次性分析代码，不要为单次需求扩张 CLI contract。
 
+## 批量打开通知（在浏览器里逐条打开）
+
+当用户说"把所有 lesson comment / lesson notification / 这些通知都打开"这类表达时，用 `open-notifications`：读已有的 fetch artifact，按类筛出通知，去重后逐条交给操作系统打开（macOS `open` / Linux `xdg-open`），每条之间 sleep。它不联网、不需要凭证，且**默认 dry-run**——先打印计划，加 `--execute --confirm OPEN-NOTIFICATIONS` 才真正打开：
+
+```bash
+# 1) 先看计划（dry-run，默认）
+.venv/bin/circle-client open-notifications --input data/notifications.json --category lesson_comments
+# 2) 核对条数无误后再执行
+.venv/bin/circle-client open-notifications --input data/notifications.json --category lesson_comments --interval 3 --execute --confirm OPEN-NOTIFICATIONS
+```
+
+为什么是 CLI 而不是 HTML 按钮：页面 JS 用 `window.open` 连开多个标签会被弹窗拦截器挡下（只有用户点击那一下同步打开的窗口才被允许），而 OS opener 由系统派发给浏览器，不受此限制。
+
+- `--category`：`lesson_comments` / `comments` / `likes` / `members` / `other` / `all`（复用 render 的分类逻辑）。
+- `--interval`：每条间隔秒数（默认 3）。
+- `--order`：`newest`（默认）/ `oldest`。
+- `--dedupe` / `--no-dedupe`：是否按完整 URL 去重（默认去重；同一消息的 `course_comment` 和 `comment_mention` 会折叠成一条）。
+- `-g` / `--background`：标签进后台，不抢焦点。
+- `--opener`：覆盖自动探测的 opener。
+- URL 必须是 http(s) 且落在 artifact 的 `source.host` 上，其它一律跳过并在计划里报告，防止被篡改的 artifact 让本机打开任意地址。
+
 ## 配置
 
 凭证过期时（`auth-status` 显示失效、或 API 返回 401），用以下方式刷新：
@@ -97,6 +118,7 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 .venv/bin/circle-client count
 .venv/bin/circle-client reset-count
 .venv/bin/circle-client mark-notification-read <notification_id>
+.venv/bin/circle-client open-notifications --input data/notifications.json --category lesson_comments
 .venv/bin/circle-client fetch --group inbox --per-page 100 --output data/notifications.json
 .venv/bin/circle-client render --input data/notifications.json --format md --output data/notifications.md
 .venv/bin/circle-client render --input data/notifications.json --format csv --output data/notifications.csv
@@ -182,6 +204,7 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 - `mark-notification-read <id>` 把单条通知标记已读（`PATCH /internal_api/notifications/<id>/mark_as_read`，cookie+CSRF，200/204 均视为成功）；默认 dry-run，live 必须 `--execute --confirm MARK-NOTIFICATION-READ` 且当次授权。已读是服务端状态：`read_at` 落库后该通知从 unread fetch 中消失、`count` 下降；只读 comment 页面不会写 `read_at`，只有 inbox 里点开通知或本命令才会。
 - `reset-count` 与 mark-all-read 是不同 mutation。当前没有 mark-all-read 能力（`mark-notification-read` 是单条，不是 mark-all），不得根据内部 endpoint 名字猜测或代替实现。
 - `open-browser` 只启动可见 Chrome、注入 cookie、打开一个社区页面后断开，不发任何 mutation；输出里没有 cookie 值。端口已被占用或 profile 已被锁住时拒绝启动，绝不附着到已有浏览器。目标 URL 必须是社区 host 上的 HTTPS 地址。
+- `open-notifications` 是本地只读动作：只读 fetch artifact、只调本地 URL opener，不联网、不动 Circle 状态，也不隐式标记已读。默认 dry-run，live 需要 `--execute --confirm OPEN-NOTIFICATIONS`；只打开落在 artifact `source.host` 上的 http(s) URL。
 - 帖子的写操作（发帖、编辑帖子）走可见浏览器，不走 `create-post` / `update-post`；Publish 和 Save draft 都不由 agent 点。
 
 ## 写帖子：可见浏览器（发帖、编辑帖子、活动回放帖）

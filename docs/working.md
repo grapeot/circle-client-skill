@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-07 open-notifications
+
+- 新增 `open-notifications`（`src/circle_client_skill/opener.py` + `cli.py`）：读 fetch artifact，按 category 过滤、按 `source.host` 校验 URL、去重、排序，然后逐条交给 OS opener（macOS `open` / Linux `xdg-open`），间隔默认 3 秒。纯本地、只读、不联网、不加载 `.env`、不改 Circle 状态；打开不等于标记已读。默认 dry-run，live 需 `--execute --confirm OPEN-NOTIFICATIONS`。
+- 设计理由（写进 root skill 和 rfc）：页面 JS 用 `window.open` 连续开多标签会被弹窗拦截器挡下，OS opener 由系统派发不受限，所以能力归 CLI。`--category/--interval/--order/--dedupe/--background/--opener` 可调；URL 白名单只放行 artifact host 上的 http(s)。
+- 新增 `tests/test_opener.py`（离线，monkeypatch sleep/run）：分类去重、顺序、off-host 拒绝、opener 调用次数、`-g` 映射、失败继续。`tests/test_cli.py` 补 parser 默认、默认 dry-run、confirm 校验、execute 路径；`tests/test_formatters.py` 补 plan/result 格式器。
+
 ### 2026-10-07 Recording subtitles and chapters
 
 - `skills/references/recording_posts.md` 新增第六节「视频字幕与章节」：帖子发布后，在帖子页视频右上角的 Customize media 对话框里上传自制字幕（Enable transcription → Upload a custom transcript → `input[name="transcript.user_webvtt_file"]`）、加章节（pause + 设 `currentTime` 后点 "Add at MM:SS"，`input[name=title]` 填标题回车），Save 后用 `video.textTracks` 回读 captions/chapters 轨的 cue 数、seek 抽查 `activeCues`、截图看双行渲染和进度条分段。坑表补了自动转写语言识别错、`[role=dialog]` 误匹配 media-error-dialog、视频在 shadow DOM、窗口全关后会话丢失等。

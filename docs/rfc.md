@@ -118,6 +118,8 @@ circle-client fetch --group inbox --per-page 100 --output data/notifications.jso
 circle-client render --input data/notifications.json --format md
 circle-client render --input data/notifications.json --format csv
 circle-client render --input data/notifications.json --format html --output data/index.html
+circle-client open-notifications --input data/notifications.json --category lesson_comments
+circle-client open-notifications --input data/notifications.json --category lesson_comments --execute --confirm OPEN-NOTIFICATIONS
 circle-client serve --directory data --host 0.0.0.0 --port 8765
 
 # V1 — spaces, posts, comments, images, chat (all read ops are live, all mutations are dry-run-first)
@@ -145,6 +147,20 @@ circle-client <command> [...] --json   # output complete raw JSON instead of com
 `--json` 是全局 flag，挂在主 parser 上、所有子命令继承。它输出**完整原始 API 响应**，不做字段裁剪，供下游 pipeline 无损消费。默认模式和 JSON 模式职责清晰分离：前者精简，后者完整。
 
 具体格式由 `formatters.py` 承载，每种命令一个格式器。列表类输出为对齐表格（非 Markdown，避免 `|` 管道符噪声），单条详情为 key-value 卡片，mutation dry-run 为结构化 preflight 块，mutation live 为一行确认，错误为人类可读单行 + status/request_id。`get-post` 默认从 tiptap body 提取纯文本，`--raw-body` 保留原始 tiptap JSON 块。`render` 和 `serve` 不受影响——它们是"保存到文件供后续用"的工具，不是即时输出。
+
+## 本地批量打开通知
+
+`open-notifications` 把"在浏览器里逐条打开未读通知"这段本地动作收编成命令，避免每次临时写脚本。它读已有 fetch artifact，按 category 过滤、按 `source.host` 校验 URL、按 URL 去重、按时间排序，然后逐条交给操作系统 opener（macOS `open` / Linux `xdg-open`），间隔默认 3 秒。
+
+放在 CLI 而不是 HTML 页面按钮里的原因：页面 JS 用 `window.open` 连续打开多个标签，浏览器弹窗拦截器只放行用户点击那一下同步打开的窗口，后续调用被静默拦截；OS opener 由系统派发给浏览器，不受该限制。
+
+安全与语义边界：
+
+- 纯本地、只读、不联网、不加载 `.env`、不改变任何 Circle 状态。打开通知不等于标记已读，两者不隐式耦合。
+- URL 必须是 `http(s)` 且落在 artifact 的 `source.host` 上，否则跳过并在计划里报告；相对路径按该 host 补全。
+- opener 以参数列表调用（`[opener, "-g"?, url]`），不经过 shell。
+- 默认 dry-run（只打印计划行），live 需要 `--execute --confirm OPEN-NOTIFICATIONS`，与其它命令的 confirm-token 契约一致。
+- `--category`（lesson_comments/comments/likes/members/other/all）、`--interval`、`--order`、`--dedupe/--no-dedupe`、`-g/--background`、`--opener` 均可调。纯逻辑在 `opener.py`（`plan_targets` / `open_sequentially`），可离线单测。
 
 ## Mutation Boundary
 
