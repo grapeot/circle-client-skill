@@ -5,6 +5,8 @@ description: >-
   and renders them as a clickable grouped HTML view (or Markdown/CSV). Primary use case:
   viewing / visualizing / triaging your Circle notifications locally. Use when a user
   asks to see, review, visualize, export, or summarize their Circle notifications.
+  Also routes post writes (new post, edit post, event recording posts): those go through
+  a human-visible browser where the agent fills the composer and a human clicks Publish.
 ---
 
 # Circle Client Skill
@@ -18,8 +20,7 @@ description: >-
 - 用户要看、导出、汇总或筛选自己的 Circle notifications。
 - 用户没有或不想使用 Admin API、Headless API、Circle MCP。
 - 用户提供了浏览器 notification request 的 Copy as cURL，或已把它放进剪贴板。
-
-发布或更新 Circle 帖子应使用独立的 Circle Post Skill，不要用本 skill。
+- 用户要发帖、改帖，或把一场活动整理成回放帖：走下文「写帖子：可见浏览器」，不走 CLI。
 
 ## 看通知 / 通知可视化（首要工作流）
 
@@ -91,6 +92,7 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 ```bash
 # 通知（V0）
 .venv/bin/circle-client configure --from-clipboard
+.venv/bin/circle-client open-browser --path /c/example-space   # 可见 Chrome + 注入会话，本身不写 Circle
 .venv/bin/circle-client auth-status
 .venv/bin/circle-client count
 .venv/bin/circle-client reset-count
@@ -179,6 +181,22 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 - `reset-count` 默认 dry-run；live 执行必须同时使用 `--execute --confirm RESET-COUNT`，并获得用户对当次动作的明确授权。
 - `mark-notification-read <id>` 把单条通知标记已读（`PATCH /internal_api/notifications/<id>/mark_as_read`，cookie+CSRF，200/204 均视为成功）；默认 dry-run，live 必须 `--execute --confirm MARK-NOTIFICATION-READ` 且当次授权。已读是服务端状态：`read_at` 落库后该通知从 unread fetch 中消失、`count` 下降；只读 comment 页面不会写 `read_at`，只有 inbox 里点开通知或本命令才会。
 - `reset-count` 与 mark-all-read 是不同 mutation。当前没有 mark-all-read 能力（`mark-notification-read` 是单条，不是 mark-all），不得根据内部 endpoint 名字猜测或代替实现。
+- `open-browser` 只启动可见 Chrome、注入 cookie、打开一个社区页面后断开，不发任何 mutation；输出里没有 cookie 值。端口已被占用或 profile 已被锁住时拒绝启动，绝不附着到已有浏览器。目标 URL 必须是社区 host 上的 HTTPS 地址。
+- 帖子的写操作（发帖、编辑帖子）走可见浏览器，不走 `create-post` / `update-post`；Publish 和 Save draft 都不由 agent 点。
+
+## 写帖子：可见浏览器（发帖、编辑帖子、活动回放帖）
+
+**原则：发帖、编辑帖子不走 CLI。** 用 `open-browser` 开一个人类可见的 Chrome（独立 profile 和调试端口，不是 headless），注入已保存的会话；agent 通过 CDP 把标题、封面、正文、视频填进编辑器，核对后停在编辑器里。**不点 Publish，也不点 Save draft**，由人继续修改并亲手发布；Topic 也留给人选。`create-post` / `update-post` 作为底层能力保留，不用来发给真实读者看的帖子。
+
+- 往真实 space 填编辑器同样需要用户在主会话里明确授权（上传封面和视频会在服务端建 blob）。
+- 不连接人正在用的浏览器。交付后不再对那个窗口跑任何脚本，不关、不刷新。
+- `open-browser` 输出 `cdp_endpoint`，后续脚本用 `chromium.connect_over_cdp(cdp_endpoint)` 连接，退出时只断开，不调用 `browser.close()`。
+
+```bash
+.venv/bin/circle-client open-browser --path /c/example-recordings --port 9333 --profile-dir data/visible_browser/profile
+```
+
+活动回放帖的完整流程（从空间归纳惯例、帖子结构与标题模板 `<活动标题>｜<系列名>回放`、录像里他人发言的处理与时间戳平移、起草 → 事实核对 → voice rewrite → surgical fix、编辑器选择器、封面对话框、大视频用 CDP `DOM.setFileInputFiles`、用 tiptap commands 组装正文、交付前核对清单和坑）见 [`references/recording_posts.md`](references/recording_posts.md)。
 
 ## 活动（event）
 

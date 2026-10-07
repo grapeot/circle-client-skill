@@ -290,6 +290,23 @@ def cmd_configure_browser(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_open_browser(args: argparse.Namespace) -> None:
+    """Open a visible Chrome logged in with the saved session; never writes Circle data."""
+    from .visible_browser import open_visible_browser
+
+    settings = load_settings(Path(args.env_file))
+    result = open_visible_browser(
+        settings,
+        path=args.path,
+        url=args.url,
+        port=args.port,
+        profile_dir=Path(args.profile_dir),
+        chrome=args.chrome,
+        settle_ms=args.settle_ms,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 def cmd_fetch(args: argparse.Namespace) -> None:
     settings = load_settings(Path(args.env_file))
     document = CircleClient(settings, timeout=args.timeout).fetch_notifications(
@@ -913,6 +930,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Circle community URL to navigate to (default: https://app.circle.so)",
     )
     configure_browser.set_defaults(handler=cmd_configure_browser)
+
+    open_browser = subparsers.add_parser(
+        "open-browser",
+        help="Open a visible Chrome logged in with the saved session (no Circle writes)",
+    )
+    open_browser.add_argument("--path", default=None, help="Community-relative path, e.g. /c/example-space")
+    open_browser.add_argument("--url", default=None, help="Full HTTPS URL on the community host")
+    open_browser.add_argument("--port", type=int, default=9333, help="Chrome remote debugging port")
+    open_browser.add_argument(
+        "--profile-dir",
+        default="data/visible_browser/profile",
+        help="Dedicated Chrome user-data-dir (keep it under the gitignored data/)",
+    )
+    open_browser.add_argument("--chrome", default=None, help="Chrome/Chromium executable path")
+    open_browser.add_argument("--settle-ms", type=int, default=3000)
+    open_browser.set_defaults(handler=cmd_open_browser)
 
     auth_status = subparsers.add_parser("auth-status", help="Show masked credential status")
     auth_status.set_defaults(handler=cmd_auth_status)

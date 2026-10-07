@@ -2,6 +2,14 @@
 
 ## Changelog
 
+### 2026-10-07 Recording posts and visible-browser writes
+
+- 新增 `skills/references/recording_posts.md`：活动回放帖的完整工作流。包括怎样从回放空间统计惯例（置顶说明帖、最近十几帖逐项计数）、帖子结构（中文第一人称整理文、标题 `<活动标题>｜<系列名>回放` 且系列名不写死、原生视频、`MM:SS｜标题` 观看导航、资源链接、评论邀请、不放优惠码、2.8:1 封面）、录像里他人发言的确认与剪辑及时间戳平移、起草 → 事实核对 → voice rewrite → surgical fix，以及可见浏览器填写编辑器的流程、核对清单和坑。
+- 确立执行原则并写进 root skill：发帖、编辑帖子不走 CLI。开人类可见的浏览器，agent 填好标题、封面、正文、视频后停在编辑器里，不点 Publish、不点 Save draft，由人修改并亲手发布。`create-post` / `update-post` 保留为底层能力。
+- 新命令 `open-browser`（`src/circle_client_skill/visible_browser.py`）：以独立 `--user-data-dir` 和 `--remote-debugging-port` 启动 detached 的可见 Chrome，等 `/json/version` 就绪后 `connect_over_cdp`，注入 `.env` 的 cookie，打开一个社区页面，然后只断开 CDP、不关浏览器。端口已有监听（只做 TCP connect 探测，不发数据）或 profile 有 `Singleton*` 锁时拒绝启动，绝不附着到已有浏览器；目标 URL 必须是社区 host 上的 HTTPS 地址；输出只有 endpoint、端口、profile、URL、pid 和 cookie 条数。命令本身不发 mutation。
+- 新增 `tests/test_visible_browser.py`（离线，fake Playwright、fake Popen）：启动参数、cookie 注入、只断开不关闭、导航失败也 stop、占用端口/锁住的 profile 在启动前拒绝、URL host/scheme 校验、Chrome 查找顺序、CDP 轮询的重试/进程退出/超时、CLI 输出和错误不含凭证。
+- 没有 live 跑 `open-browser`：实际流程用的是同一套手法的临时脚本（gitignored `data/`）。
+
 ### 2026-10-03 Probe tooling
 
 - 新增 `src/circle_client_skill/probe/`：`ProbeSession`（从 `.env` 注入 cookie 的 headless Chromium，禁用 service worker，`finally` 里逐个关闭 page/context/browser/Playwright）、`RouteGuard`（拦截发往 community host 的非 GET 请求，默认放行列表为空，按 `"[METHOD] /path"` + fnmatch 放行，记录 `blocked`）、`RequestCapture`（只记 `/internal_api/` XHR/fetch，`dump()` 写盘前脱敏）、`Redactor`（字段名、URL 签名参数和 `.env` 里实际凭证值三层替换）。
@@ -124,4 +132,6 @@
 - 编辑聊天消息的 PATCH 不带 participant id；发送的 POST 仍然要带。mention sgid 是服务端签名，`/users/mentions.json` 返回的是 JSON 数组，不是 `{records: ...}` envelope。
 - chat 消息只携带被 mention 者的 sgid，不携带作者 sgid。`circle_ios_fallback_text` 会压平段落并丢掉 mention，读正文要用 `rich_text_body.body.content`。
 - 打开任何社区页面都会触发前端自己的写请求（analytics、Cloudflare beacon、cache invalidation、space 的 `reset_unread_count`）。probe 的 `guard.blocked` 里出现这些是正常的，判断有没有意外写入要看具体 endpoint。
+- 通过 `connect_over_cdp` 连接的浏览器不接受 Playwright `set_input_files` 传大于 50 MB 的文件；CDP `DOM.setFileInputFiles` 传本地路径没有这个限制。Circle 的 Add cover 不触发 file chooser，而是打开带独立 file input 的对话框。
+- 往 tiptap 编辑器里放长文，合成粘贴受光标位置影响（起始 H2 会丢），对话框里键盘全选清空也不可靠；直接用 `el.editor.commands.setContent` / `insertContentAt` 组装，再用 `editor.getJSON()` 回读。
 - 活动的「建」和「发通知」是两个动作：Save 只建草稿，发布邮件只在 Publish 那一刻发且不能重发。通知开关默认全开，而且只在草稿编辑页出现，Create 对话框里看不到。只有 admin 能看到的 test space 若有非 admin 成员，Publish 也会通知他们。
