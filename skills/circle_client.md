@@ -144,6 +144,7 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 .venv/bin/circle-client update-chat-message --room-uuid 00000000-0000-0000-0000-000000000000 --message-id 9000001 --text "Hello" --execute --confirm UPDATE-CHAT-MESSAGE
 .venv/bin/circle-client list-chat-messages --space-id <id> --direction previous --previous-per-page N   # 默认 newest-first
 .venv/bin/circle-client list-chat-replies --room-uuid <uuid> --parent-message-id <id>                      # thread 保持 ascending
+.venv/bin/circle-client list-chat-messages --room-uuid <uuid> --direction previous --previous-per-page 50 # 发送后回读用
 
 # 课程内容与 lesson 讨论（只读）
 .venv/bin/circle-client course-lessons -s <space_id>
@@ -167,7 +168,7 @@ course 类 space 的 lesson 内容是正文加媒体，不是 post。lesson 讨�
    `--focus <message-id>` 在 window 截断之后只留包含该消息的线程：root id 命中则留该 root 及其 replies；未命中则在已抓 replies 里找，命中则留其 root 和全部 replies。都不中，或不在本次 window 里，会报未找到。
    注意：lesson 讨论 room 里服务端会忽略 per-page 参数、一次返回全部根消息，所以命令在输出层按 `--previous-per-page`（默认 20）截断到最新 N 条；要看更多把 per-page 调大。
 
-要在 lesson 讨论里发或改消息，room 不用手填 uuid：`chat-send` / `update-chat-message` 接受 `-s <space_id> --section-id <id> --lesson-id <id>`，内部读 lesson 的 `chat_room_uuid`。发送仍然要 `--participant-id`；编辑不传 participant id。
+要在 lesson 讨论里发或改消息，room 不用手填 uuid：`chat-send` / `update-chat-message` 接受 `-s <space_id> --section-id <id> --lesson-id <id>`，内部读 lesson 的 `chat_room_uuid`。发送仍然要 `--participant-id`（**该 room 自己的 id，见「回复与发送」一节**）；编辑不传 participant id。对真实读者的回复优先走可见浏览器（[`references/reply_in_browser.md`](references/reply_in_browser.md)），CLI live 发送后必须回读核验。
 
 从 `course_comment` 通知进去可以跳过前两步。通知 JSON 的 `action_inbox_path` 形如 `/settings/inbox/course-comments/<room-uuid>`，把末段 uuid 交给 `list-chat-messages --room-uuid <uuid>`。`action_web_url` 里的 `#message_<id>` 是根消息 id，要看 thread 时传给 `list-chat-replies --parent-message-id <id>`。
 
@@ -206,6 +207,15 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 - `open-browser` 只启动可见 Chrome、注入 cookie、打开一个社区页面后断开，不发任何 mutation；输出里没有 cookie 值。端口已被占用或 profile 已被锁住时拒绝启动，绝不附着到已有浏览器。目标 URL 必须是社区 host 上的 HTTPS 地址。
 - `open-notifications` 是本地只读动作：只读 fetch artifact、只调本地 URL opener，不联网、不动 Circle 状态，也不隐式标记已读。默认 dry-run，live 需要 `--execute --confirm OPEN-NOTIFICATIONS`；只打开落在 artifact `source.host` 上的 http(s) URL。
 - 帖子的写操作（发帖、编辑帖子）走可见浏览器，不走 `create-post` / `update-post`；Publish 和 Save draft 都不由 agent 点。
+
+## 回复与发送：可见浏览器优先，CLI 必须回读
+
+**原则：对真实读者可见的回复（lesson 讨论回复、给成员回帖、chat room 发言）先 `open-browser` 打开目标页面**，用户在可见窗口里能当场看到发没发出去、能点进去核对；这个窗口同时是回读和兜底路径。CLI 的 `chat-send` 保留给 test space 和脚本化场景。
+
+- 只要用 CLI live 发送，发送后**必须回读核验**：`list-chat-replies --room-uuid <uuid> --parent-message-id <root-id>` 或 `list-chat-messages` 里出现新 message id 才算成功。**HTTP 202 / `creation_uuid` / "OK: sent" 都不是送达证据。**
+- `chat_room_participant_id` 是 **per-room** 值，不是账号常量；同一个账号在不同 room 里的 id 不同。用 CLI 发送前先从目标 room 的 `GET /internal_api/chat_rooms/<uuid>/participants` 里按 `community_member_id` 认领自己；填错时 Circle 仍返回 202 但消息被静默丢弃。不要把这个值写进脚本或公开文件。
+- 完整操作路径（点根消息展开 thread → 在 `[contenteditable=true]` 的 tiptap 编辑器输入 → `@` 触发 mention 选人 → 点 `aria-label="Send message"` → 回读新消息 id）见 [`references/reply_in_browser.md`](references/reply_in_browser.md)。
+- 发送是对外可见动作，需要用户当次明确授权；授权前可以开好浏览器、填好草稿、截图给用户看。
 
 ## 写帖子：可见浏览器（发帖、编辑帖子、活动回放帖）
 

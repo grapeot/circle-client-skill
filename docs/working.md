@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-08 Visible-browser replies and participant-id lesson
+
+- 确立新原则并写进 root skill：**对真实读者可见的回复/发送（lesson 讨论回复、给成员回帖）先 `open-browser` 打开目标页面**，用户在可见窗口里能当场看到发没发出去、能点进去看；同一窗口兼作回读和兜底路径。CLI 的 `chat-send` 保留给 test space 和脚本化场景，且 live 发送后必须回读核验。
+- 记录 participant-id 教训：`chat_room_participant_id` 是 per-room 值，不是账号常量；用错 id 时 Circle 仍返回 202 + `creation_uuid`，CLI 打印 OK，但消息被静默丢弃。送达证据只能来自回读（`list-chat-replies` / `list-chat-messages` 能看到新消息 id）。
+- 记录可见浏览器里回复 thread 的真实操作路径（`skills/references/reply_in_browser.md`）：打开 lesson 页 → 点根消息展开 thread → 在 `[contenteditable=true]` 的 tiptap 编辑器里输入 → `@` 触发 mention 选人 → 点 aria-label 为 `Send message` 的按钮 → 用 `list-chat-replies` 回读新消息 id。
+
 ### 2026-10-07 open-notifications
 
 - 新增 `open-notifications`（`src/circle_client_skill/opener.py` + `cli.py`）：读 fetch artifact，按 category 过滤、按 `source.host` 校验 URL、去重、排序，然后逐条交给 OS opener（macOS `open` / Linux `xdg-open`），间隔默认 3 秒。纯本地、只读、不联网、不加载 `.env`、不改 Circle 状态；打开不等于标记已读。默认 dry-run，live 需 `--execute --confirm OPEN-NOTIFICATIONS`。
@@ -151,3 +157,6 @@
 - Circle 的视频播放器在 shadow DOM 里，内部还有一个 role=dialog 的 media-error-dialog；找 video 要递归 `shadowRoot`，找对话框要按 accessible name。
 - 可见 Chrome 的窗口全部关掉后，session cookie 丢失，`connect_over_cdp` 报 "Browser context management is not supported"；先 `PUT /json/new?<url>` 开 tab 再连并重新注入 cookie。
 - 活动的「建」和「发通知」是两个动作：Save 只建草稿，发布邮件只在 Publish 那一刻发且不能重发。通知开关默认全开，而且只在草稿编辑页出现，Create 对话框里看不到。只有 admin 能看到的 test space 若有非 admin 成员，Publish 也会通知他们。
+- `chat_room_participant_id` 是 **per-room** 的，不是账号级常量。同一个账号在不同 lesson 讨论 room 里有不同的 participant id（实测：拿另一个 room 的 id 去发，静默失败；换成本 room 的 id 才落帖）。用错 id 发 `chat-send` 时，Circle 仍返回 HTTP 202 和 `creation_uuid`，CLI 打印 "OK: sent"，但消息被静默丢弃，thread 里什么都没有——**202/creation_uuid 不能当作送达证据**。`--participant-id` 只能填目标 room 里本人的 id，从该 room 的 `GET /internal_api/chat_rooms/<uuid>/participants` 列表里按 `community_member_id` 认领自己的那一条。
+- 判断一条消息到底发出去没有，唯一可靠办法是**回读**：`list-chat-replies --room-uuid <uuid> --parent-message-id <root-id>`（或 `list-chat-messages`）里能看到新消息的 id 才算成功。只发不读、只看 CLI 的 OK，就会在失败时误报成功。
+- 对真实读者可见的发送（lesson 讨论回复、给成员回帖）要先 `open-browser` 打开目标页面：用户能当场看到发没发出去、能点进去看，同一个窗口也是回读和兜底路径。CLI 的 `chat-send` 保留给 test space 和脚本化场景，live 发送后仍必须回读核验。
