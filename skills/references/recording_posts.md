@@ -50,89 +50,12 @@
 
 ## 五、可见浏览器填写编辑器
 
-### 1. 打开窗口
+编辑器操作对所有帖子都一样，写在 [`browser_post_composer.md`](browser_post_composer.md)：开窗口、先点 Full screen 展开、对话框定位、标题、封面、正文插图与图片宽度（横图满宽、竖图半宽）、大视频用 CDP `DOM.setFileInputFiles` 上传、用 tiptap commands 重建正文、Topic、交付前核对，以及停在 Publish 之前。
 
-```bash
-.venv/bin/circle-client open-browser --path /c/example-recordings --port 9333 \
-  --profile-dir data/visible_browser/profile
-```
+回放帖在此基础上只多两点：
 
-它会启动一个可见的 Chrome（独立 `--user-data-dir`、只监听 127.0.0.1 的 `--remote-debugging-port`），通过 CDP 注入 `.env` 里的 cookie，打开目标页后断开。Chrome 进程留着，命令输出 `cdp_endpoint`，之后的脚本都用它连接。命令本身不写任何 Circle 数据，但打开空间页时前端自己会发 `reset_unread_count` 之类的请求，这和人浏览时一样。
-
-为什么不用 Playwright 的 `launch(headless=False)`：Playwright 拥有的浏览器会在脚本退出时关掉，人接不了手，后续脚本也连不回同一个窗口。为什么不 `connect_over_cdp` 到人日常用的 Chrome：那会把 agent 的操作混进人的会话，也可能碰到人正在编辑的页面。新版 Chrome 也只允许非默认 profile 开远程调试。
-
-后续脚本的连接方式：
-
-```python
-from playwright.sync_api import sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.connect_over_cdp("http://127.0.0.1:9333")
-    ctx = browser.contexts[0]
-    page = next(pg for pg in ctx.pages if "community.example.com" in pg.url)
-    ...
-# 退出 with 只断开 CDP；不要调用 browser.close() / page.close()
-```
-
-### 2. 打开 Create post
-
-空间页点 **New post**，弹出 "Create post" 对话框（`[role=dialog]`）。后续选择器都限定在对话框内。
-
-- 标题：`textarea[name=name]`，用 `fill()`。
-- 正文：tiptap 编辑器 `[role=dialog] .tiptap.ProseMirror`。这个 DOM 元素上挂着 `editor` 实例（`el.editor`），可以直接调用 tiptap commands。
-
-### 3. 封面
-
-**Add cover** 不会触发 file chooser，而是打开 "Choose cover image" 对话框，里面有独立的 `input[type=file]`（accept 含 `image/jpeg,image/png,image/gif,image/webp`）。对它 `set_input_files(<cover.png>)`，再点 **Save changes**。成功后封面区出现 Replace / Remove。
-
-### 4. 视频
-
-工具栏 **Attach video** 打开对话框（Upload / Embed link 两个 tab，上传上限 4096 MB），里面有 `input[type=file][accept*=video]`。
-
-通过 `connect_over_cdp` 连接时，Playwright 的 `set_input_files` 拒绝大于 50 MB 的文件（"Cannot transfer files larger than 50Mb to a browser not co-located"）。改用 CDP 的 `DOM.setFileInputFiles` 直接传本地路径，浏览器在本机读文件：
-
-```python
-cdp = ctx.new_cdp_session(page)
-root = cdp.send("DOM.getDocument", {"depth": 0})["root"]["nodeId"]
-node = cdp.send("DOM.querySelector", {
-    "nodeId": root, "selector": 'input[type=file][accept*="video"]'})["nodeId"]
-cdp.send("DOM.setFileInputFiles", {"nodeId": node, "files": ["/abs/path/to/video.mp4"]})
-```
-
-上传完成的判据：正文里出现 tiptap `file` 节点（`attrs.signed_id` 有值），对应的 `<video>` 元素 `src` 指向 `/rails/active_storage/blobs/...`，且 `duration` 等于本地文件时长。大文件要轮询几分钟。
-
-### 5. 正文：用 tiptap commands 组装，不靠粘贴
-
-合成粘贴（`ClipboardEvent('paste')` + `DataTransfer` 里放 `text/html` 和 `text/plain`）能把 pandoc HTML 正确转成标题、加粗、列表、链接。但它有三个问题：粘贴的起始 H2 落到某些光标位置会丢；在对话框里用 Meta+A / Backspace 清空不可靠；多次尝试上传会在正文里留下多余的 `file` 节点。
-
-最稳的做法是先上传一次视频，从 `editor.getJSON()` 里取出那个 `file` 节点，然后整篇重建：
-
-```js
-// page.evaluate(js, {part1, part2})
-({part1, part2}) => {
-  const ed = document.querySelector('[role=dialog] .tiptap.ProseMirror').editor;
-  const fileNode = ed.getJSON().content.find(n => n.type === 'file' && n.attrs?.signed_id);
-  if (!fileNode) throw new Error('video not uploaded yet');
-  ed.commands.setContent(part1);                                   // 清掉一切，包括多余的 file 节点
-  ed.commands.insertContentAt(ed.state.doc.content.size, fileNode); // 视频
-  ed.commands.insertContentAt(ed.state.doc.content.size, part2);   // 视频之后的正文
-  return ed.getJSON().content.map(n => n.type + (n.attrs?.level ? n.attrs.level : ''));
-}
-```
-
-最后一行回读节点顺序，确认是「导语段落 → file → H2 …」，而且只有一个 `file` 节点。
-
-### 6. 交付前核对，然后停住
-
-逐项回读，不凭「刚才填过」：
-
-- 标题：`textarea[name=name]` 的 value 等于确认过的标题。
-- 封面：封面区出现 Replace / Remove。
-- 正文：`editor.getJSON()` 的节点顺序；所有链接的 `href`（从 DOM 里收集 `a[href]`，逐个和定稿比对）。
-- 视频：只有一个 `file` 节点，`<video>` 的 `duration` 等于剪辑后视频时长。
-- Topic：不选，留给人（只列出空间里可选的 Topic 供人参考）。
-
-然后断开 CDP，告诉人窗口在哪、填了什么、还剩什么要人做（选 Topic、通读、Publish）。**不点 Publish，不点 Save draft，不关对话框。**
+- 视频放在导语之后或正文开头（第二节），正文里只有一个 `file` 节点，`<video>` 的 `duration` 等于剪辑后的视频时长。
+- 封面用第二节的 2.8:1 规格。
 
 ## 六、视频字幕与章节（帖子发布后）
 
@@ -184,7 +107,7 @@ Path("subtitles_zh_en.vtt").write_text(vtt)
 
 ### 4. 在对话框里上传字幕、加章节
 
-**上传字幕。** 打开 Enable transcription，选 Upload a custom transcript，对 `input[type=file][name="transcript.user_webvtt_file"]` 用 `set_input_files`。.vtt 文件很小，Playwright 直接传即可；只有超过 50 MB 才需要第五节里的 CDP `DOM.setFileInputFiles`。
+**上传字幕。** 打开 Enable transcription，选 Upload a custom transcript，对 `input[type=file][name="transcript.user_webvtt_file"]` 用 `set_input_files`。.vtt 文件很小，Playwright 直接传即可；只有超过 50 MB 才需要 `browser_post_composer.md` 第 6 节里的 CDP `DOM.setFileInputFiles`。
 
 **加章节。** Chapters 区第一次点 **Add chapter** 会在 00:00 生成第一行；之后的按钮文字是 **Add at MM:SS**，时间取预览视频的播放头位置。所以每加一个章节都是：把预览视频暂停并 seek 到章节时间 → 点 Add at → 在 `input[name=title]` 填标题 → 回车确认。章节标题和帖子正文里的观看导航保持一致。
 
@@ -240,17 +163,11 @@ Save 之后刷新帖子页，从页面上的 `video.textTracks` 读回（同样�
 
 ## 坑
 
+编辑器操作相关的坑（连接、遮挡、对话框定位、封面、插图、大视频、正文重建、Topic、交付后误操作）见 [`browser_post_composer.md`](browser_post_composer.md) 的坑表。这里只列回放帖特有的。
+
 | 现象 | 原因 / 对策 |
 |---|---|
-| Playwright 连到了人自己的 Chrome | 默认 `connect_over_cdp` 连的就是给定端口上的那个浏览器。用 `open-browser` 开独立 `--user-data-dir` + `--remote-debugging-port`，cookie 用 `probe.session.cookies_for_browser` 注入。端口和 profile 被占用时换一个，不要附着。 |
-| Add cover 点了没有 file chooser | 它打开的是 "Choose cover image" 对话框，里面有自己的 `input[type=file]`；设文件后要点 Save changes。 |
-| 视频 `set_input_files` 报 50 MB 限制 | 远程连接的浏览器不接受大文件传输。用 CDP `DOM.setFileInputFiles` 传本地路径。 |
-| 粘贴后第一个 H2 不见了 | 合成粘贴受光标位置影响。改用 `editor.commands.setContent` / `insertContentAt`。 |
-| 正文里有两三个视频 | 每次上传都插一个 `file` 节点。只保留一个 `signed_id`，用 `setContent` 整篇重建。 |
-| Meta+A 清空后还有残留 | 对话框里键盘全选不可靠。同上，用 `setContent`。 |
-| 段落里出现奇怪的换行 | pandoc 默认按 72 列折行。加 `--wrap=none`。 |
 | 章节时间戳对不上视频 | 剪辑后没有整体平移。按剪掉的时长重算，最后一个章节用视频时长核对。 |
-| 交付后人的窗口被刷新了 | 交付后不要再对那个窗口跑任何脚本；需要改动时先问人。 |
 | Circle 自动字幕把英文讲座转成了中文 | 自动转写不可靠。上传自制双语 .vtt（Upload a custom transcript）。 |
 | 字幕在剪辑点之后错位 | cue 没按剪辑映射。用 `remap_cues` 按剪掉区间前移、按截断点丢弃，回读时 seek 到剪辑点之后核对。 |
 | 字幕一闪而过或互相重叠 | 长 cue 没切分，或切分后时间没按比例分配、相邻 cue 重叠。用 `build_bilingual_vtt` 组装，`validate_vtt` 校验。 |
@@ -258,4 +175,3 @@ Save 之后刷新帖子页，从页面上的 `video.textTracks` 读回（同样�
 | `document.querySelector('video')` 找不到预览视频 | 视频在 shadow DOM 里。递归 `shadowRoot` 查找，取最宽的那个。 |
 | 章节时间不对 | Add at 取的是预览视频的播放头位置。每次先 pause 再设 `currentTime`，等一会儿，确认按钮上的 `Add at MM:SS` 是目标时间再点。 |
 | `textTracks` 里 cues 是 null | 轨道 `mode` 是 disabled。先设成 `hidden` 再读。 |
-| 关掉窗口后变成未登录，`connect_over_cdp` 报 "Browser context management is not supported" | 浏览器没有任何 tab 了。`PUT /json/new?<url>` 开一个 tab 再连，重新注入 cookie。 |
