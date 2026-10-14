@@ -246,6 +246,38 @@ class CircleClient:
             f"/sections/{section_id}/lessons/{lesson_id}",
         )
 
+    def list_course_sections(self, space_id: int) -> list[dict[str, Any]]:
+        """Admin view of a course: every section with its lessons and their status, drafts and empty
+        sections included (the member view from ``get_space`` hides both)."""
+        data = self._request("GET", f"{self.settings.base_url}/internal_api/courses/{space_id}/sections")
+        return data.get("records", []) if isinstance(data, dict) else data
+
+    def create_course_section(self, space_id: int, name: str) -> dict[str, Any]:
+        """Append a section to a course (what the builder's Add new > Section sends)."""
+        return self._request(
+            "POST",
+            f"{self.settings.base_url}/internal_api/courses/{space_id}/sections",
+            json_body={"course_section": {"drip_delay": 0, "lesson_order": [], "name": name}},
+            mutation=True,
+        )
+
+    def rename_course_section(self, space_id: int, section_id: int, name: str) -> dict[str, Any]:
+        return self._request(
+            "PUT",
+            f"{self.settings.base_url}/internal_api/courses/{space_id}/sections/{section_id}",
+            json_body={"course_section": {"name": name}},
+            mutation=True,
+        )
+
+    def create_course_lesson(self, space_id: int, section_id: int, name: str) -> dict[str, Any]:
+        """Append a draft lesson to a section (what the builder's Add new > Lesson sends)."""
+        return self._request(
+            "POST",
+            f"{self.settings.base_url}/internal_api/courses/{space_id}/sections/{section_id}/lessons",
+            json_body={"course_lesson": {"featured_media": None, "name": name, "rich_text_body": {}, "status": "draft"}},
+            mutation=True,
+        )
+
     # ---- Posts ----
 
     def list_posts(

@@ -66,6 +66,10 @@ circle-client mark-notification-read 9000001
 
 Circle 活动的创建流程、字段、通知默认值和观察到的 endpoint 记录在 `skills/references/events.md`。本工具不提供活动写命令：创建、编辑和发布活动都在浏览器 UI 里完成，Publish 由人亲手点；本仓库里与活动相关的脚本只用于观察和回读。
 
+## 课程 lesson
+
+把一份教材搬进 Circle 课程：`course-sections` 读出含 Draft 的课程结构，`create-section` / `rename-section` / `create-lesson` 走会员会话的内部接口建 Draft，`fill-lesson` 按 lesson 清单（JSON：标题加 HTML 片段和媒体文件）在可见浏览器的 lesson 编辑器里重建正文、保存并回读，`lesson-featured-video` 和 `lesson-media-settings` 处理视频 lesson 的 featured 视频、字幕、章节和封面。写命令默认 dry-run，浏览器命令只改 Draft lesson，Publish 由人点。流程和清单格式见 `skills/references/course_lessons.md`。
+
 ## 发帖与活动回放帖
 
 发帖、编辑帖子不走 CLI。`circle-client open-browser --path /c/example-space` 启动一个可见的 Chrome（独立 profile 和调试端口），注入 `.env` 里的会话后断开；agent 再通过 CDP 把编辑器填好，停在 Publish 之前，由人修改并亲手发布。命令本身不写任何 Circle 数据，端口或 profile 已被占用时拒绝启动。活动回放帖的惯例归纳、写作流程和编辑器操作细节见 `skills/references/recording_posts.md`。
