@@ -2,6 +2,19 @@
 
 ## Changelog
 
+### 2026-10-13 Generic composer doc: inline images, portrait half-width, full screen, topics
+
+- 新增 `skills/references/browser_post_composer.md`：把「可见浏览器填写发帖编辑器」从回放帖文档里抽成通用流程，适用于任何空间的帖子。这次在一个项目分享空间里发图文加视频的普通帖，新摸清并写进去的：
+  - 打开 Create post 后先点 Full screen：小对话框里工具栏、图片气泡菜单和下拉列表会被遮挡。
+  - 编辑时页面上有多个 dialog（AI summary 浮层、Attach image / Attach video、播放器的 media-error-dialog），编辑器用「包含 `.tiptap.ProseMirror` 的 dialog」定位。
+  - 正文插图：Add image 打开 "Attach image" 对话框（不弹系统文件选择框），对对话框里的输入框设文件再点 Save，插入带 `signed_id` 的 `image` 节点；对话框外那个 `accept="image/*"` 的输入框不插正文图。image 节点没有文件名，每次上传前后对比 `getJSON()` 记录新增的 `signed_id`。
+  - 图片宽度：`width_ratio: null, alignment: "center"` 为满宽；气泡菜单第一个选项对应 `width_ratio: 0.5, alignment: "left"`，即半宽。竖图（手机截图）用半宽，横图满宽；代码里用 `updateAttributes('image', ...)` 或组装时直接写进节点，改完把选区移出媒体节点。
+  - 正文组装从「前半段 + 一个视频 + 后半段」推广到 N 个媒体：markdown 在图片位置切开、每段转 HTML，与媒体节点交替 `insertContentAt`。
+  - Topic 选择框的 "Choose up to 5 topics" 是 placeholder（用 `get_by_placeholder`）；没选 Topic 时 Publish 是灰的。默认留给人选，用户要求时可代选并回读，仍不点 Publish。
+  - 发帖编辑器里没有字幕入口；视频已烧录字幕时不要再上传软字幕。
+- `recording_posts.md` 第五节改为引用通用文档，只保留回放帖特有的两点（视频位置、2.8:1 封面）；编辑器相关的坑移到通用文档的坑表。root skill「写帖子」一节和 AGENTS.md 的边界说明改为先指向通用文档。
+- 待验证：CLI 的 `upload-image` 拿到的 `signed_id` 能否直接组成 image 节点插入编辑器（可绕开 Attach image 对话框）。
+
 ### 2026-10-08 Visible-browser replies and participant-id lesson
 
 - 确立新原则并写进 root skill：**对真实读者可见的回复/发送（lesson 讨论回复、给成员回帖）先 `open-browser` 打开目标页面**，用户在可见窗口里能当场看到发没发出去、能点进去看；同一窗口兼作回读和兜底路径。CLI 的 `chat-send` 保留给 test space 和脚本化场景，且 live 发送后必须回读核验。

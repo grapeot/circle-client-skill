@@ -219,7 +219,7 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 
 ## 写帖子：可见浏览器（发帖、编辑帖子、活动回放帖）
 
-**原则：发帖、编辑帖子不走 CLI。** 用 `open-browser` 开一个人类可见的 Chrome（独立 profile 和调试端口，不是 headless），注入已保存的会话；agent 通过 CDP 把标题、封面、正文、视频填进编辑器，核对后停在编辑器里。**不点 Publish，也不点 Save draft**，由人继续修改并亲手发布；Topic 也留给人选。`create-post` / `update-post` 作为底层能力保留，不用来发给真实读者看的帖子。
+**原则：发帖、编辑帖子不走 CLI。** 用 `open-browser` 开一个人类可见的 Chrome（独立 profile 和调试端口，不是 headless），注入已保存的会话；agent 通过 CDP 把标题、封面、正文、图片、视频填进编辑器，核对后停在编辑器里。**不点 Publish，也不点 Save draft**，由人继续修改并亲手发布；Topic 默认留给人选，用户要求时可以代选（没选 Topic 时 Publish 是灰的）。`create-post` / `update-post` 作为底层能力保留，不用来发给真实读者看的帖子。
 
 - 往真实 space 填编辑器同样需要用户在主会话里明确授权（上传封面和视频会在服务端建 blob）。
 - 不连接人正在用的浏览器。交付后不再对那个窗口跑任何脚本，不关、不刷新。
@@ -229,9 +229,17 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 .venv/bin/circle-client open-browser --path /c/example-recordings --port 9333 --profile-dir data/visible_browser/profile
 ```
 
+编辑器的通用操作见 [`references/browser_post_composer.md`](references/browser_post_composer.md)，要点：
+
+- 打开 Create post 后先点 **Full screen** 展开，否则工具栏、图片气泡菜单和下拉列表容易被遮挡。
+- 正文插图走 Add image 打开的 "Attach image" 对话框（设文件后点 Save），不会弹系统文件选择框；每次上传前后对比 `editor.getJSON()`，记下新增节点的 `signed_id`。
+- 横图满宽；手机截图等竖图设成半宽（image 节点 `width_ratio: 0.5, alignment: "left"`，等同于点图片后气泡菜单的第一个选项）。
+- 先把所有图片和视频各上传一次，再用 `setContent('')` + `insertContentAt` 把正文和媒体节点交替重建，不靠粘贴。
+- 发帖编辑器里没有字幕入口；字幕只能发布后在 Customize media 里加，视频已烧录字幕时不要再加软字幕。
+
 帖子发布后给视频补字幕和章节（帖子页视频右上角 Customize media 对话框）是对已发布帖子的修改：要用户对这一次修改明确授权，agent 点 Save 后立刻用 `video.textTracks` 回读。英文讲座不要用 Circle 的自动转写，上传自制的中英双语 .vtt；时间轴映射、按比例切分、双语组装和校验用离线模块 `circle_client_skill.subtitles`。
 
-活动回放帖的完整流程（从空间归纳惯例、帖子结构与标题模板 `<活动标题>｜<系列名>回放`、录像里他人发言的处理与时间戳平移、起草 → 事实核对 → voice rewrite → surgical fix、编辑器选择器、封面对话框、大视频用 CDP `DOM.setFileInputFiles`、用 tiptap commands 组装正文、交付前核对清单、发布后的双语字幕与章节、坑）见 [`references/recording_posts.md`](references/recording_posts.md)。
+活动回放帖特有的流程（从空间归纳惯例、帖子结构与标题模板 `<活动标题>｜<系列名>回放`、录像里他人发言的处理与时间戳平移、起草 → 事实核对 → voice rewrite → surgical fix、发布后的双语字幕与章节、相关的坑）见 [`references/recording_posts.md`](references/recording_posts.md)；它的编辑器部分同样引用上面的通用文档。
 
 ## 活动（event）
 
