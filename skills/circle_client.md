@@ -241,6 +241,12 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 
 活动回放帖特有的流程（从空间归纳惯例、帖子结构与标题模板 `<活动标题>｜<系列名>回放`、录像里他人发言的处理与时间戳平移、起草 → 事实核对 → voice rewrite → surgical fix、发布后的双语字幕与章节、相关的坑）见 [`references/recording_posts.md`](references/recording_posts.md)；它的编辑器部分同样引用上面的通用文档。
 
+## 课程 lesson（批量搬教材）
+
+**原则：新建的 section 和 lesson 一律是 Draft，脚本发现 lesson 已发布就停下；Publish 由人点。** 建 section / lesson 可以直接调 member session 的内部接口，填正文在可见浏览器的 lesson 编辑器里做，保存前确认仍是 Draft。几个最容易踩的事实：后台 Add new → Section / Lesson 点下去就建好（行内改名框的 ✗ 不删除）；section 名最长 100 字符；成员接口看不到空的或全是 Draft 的 section，核对要用 `GET /internal_api/courses/<space>/sections`；lesson 编辑器没有表格、行内代码和公式；图片可以先 `upload-image` 直传再拼 image 节点；改完正文要等两三秒再 Save，否则存的是旧正文；Customize media 按钮只在悬停时出现，seek 要限定在对话框内的预览视频。
+
+完整流程、接口、节点格式和核对清单见 [`references/course_lessons.md`](references/course_lessons.md)。
+
 ## 活动（event）
 
 **原则：本 skill 里与活动相关的脚本只用于 probe（观察表单、默认值、回读状态）。活动的写操作（创建、编辑、发布）走浏览器 UI，由人操作或由用户明确授权的浏览器 session 操作，不通过 CLI/API 命令。Publish 永远由人亲手点。** 通知类命令照旧走 CLI。往真实社区 space 写数据需要用户在主会话里明确授权；转述给 sub-agent 的授权可能被 agent 权限系统拦下，先在 test space 里试。

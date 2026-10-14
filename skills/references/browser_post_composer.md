@@ -169,9 +169,9 @@ page.keyboard.press("Escape")
 
 然后断开 CDP，告诉人窗口在哪、填了什么、还剩什么要人做（选 Topic、通读、Publish）。**不点 Publish，不点 Save draft，不关对话框。**
 
-## 待验证
+## 直传媒体再拼节点
 
-- CLI 的 `upload-image` 能直接把图片上传成 blob 并拿到 `signed_id`。如果编辑器接受只带 `signed_id`（加宽度属性）的 image 节点，就可以绕开 Attach image 对话框、按文件名精确插图。尚未实测，用之前先在 test space 验证节点能正常渲染、发布后图片可见。
+CLI 的 `upload-image` 把文件直传成 blob，返回 `signed_id` 和 `url`；只带这两个属性（加宽度属性）的 image 节点在课程 lesson 编辑器里已实测能正常渲染、保存和显示，做法见 [`course_lessons.md`](course_lessons.md) 第 4 节。发帖编辑器里用之前，先在 test space 确认一次。
 
 ## 坑
 
