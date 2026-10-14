@@ -21,6 +21,20 @@ from .config import (
     parse_curl,
     save_settings,
 )
+from .course_admin import (
+    UploadCache,
+    build_parts,
+    check_section_name,
+    connect_page,
+    editor_url,
+    fill_lesson,
+    load_manifest,
+    manifest_summary,
+    mmss,
+    parse_chapters,
+    set_media_settings,
+    upload_featured_video,
+)
 from .formatters import (
     format_auth_status,
     format_chat_messages_table,
@@ -937,6 +951,216 @@ def cmd_mention_sgids(args: argparse.Namespace) -> None:
     print(format_mention_sgids_table(mapping))
 
 
+# ---- course admin: sections, draft lessons, lesson editor (see skills/references/course_lessons.md) ----
+
+
+def _confirm(args: argparse.Namespace, token: str) -> None:
+    if args.execute and args.confirm != token:
+        raise ValueError(f"Live execution requires --confirm {token}")
+
+
+def _emit(args: argparse.Namespace, payload: dict) -> None:
+    if args.json:
+        _print_json(payload)
+    else:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def cmd_course_sections(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    sections = CircleClient(settings, timeout=args.timeout).list_course_sections(args.space_id)
+    if args.json:
+        _print_json({"success": True, "space_id": args.space_id, "sections": sections})
+        return
+    for section in sections:
+        lessons = section.get("lessons") or []
+        print(f"{section.get('id')}  {section.get('name')}  ({len(lessons)} lessons)")
+        for lesson in lessons:
+            print(f"    {lesson.get('id')}  {lesson.get('status', ''):9}  {lesson.get('name')}")
+
+
+def cmd_create_section(args: argparse.Namespace) -> None:
+    _confirm(args, "CREATE-SECTION")
+    name = check_section_name(args.name)
+    client = CircleClient(load_settings(Path(args.env_file)), timeout=args.timeout)
+    if not args.execute:
+        _emit(args, {"success": True, "dry_run": True, "operation": "create_section",
+                     "space_id": args.space_id, "name": name, "chars": len(name)})
+        return
+    result = client.create_course_section(args.space_id, name)
+    _emit(args, {"success": True, "dry_run": False, "section_id": result.get("id"), "name": result.get("name")})
+
+
+def cmd_rename_section(args: argparse.Namespace) -> None:
+    _confirm(args, "RENAME-SECTION")
+    name = check_section_name(args.name)
+    client = CircleClient(load_settings(Path(args.env_file)), timeout=args.timeout)
+    if not args.execute:
+        _emit(args, {"success": True, "dry_run": True, "operation": "rename_section", "space_id": args.space_id,
+                     "section_id": args.section_id, "name": name, "chars": len(name)})
+        return
+    client.rename_course_section(args.space_id, args.section_id, name)
+    _emit(args, {"success": True, "dry_run": False, "section_id": args.section_id, "name": name})
+
+
+def cmd_create_lesson(args: argparse.Namespace) -> None:
+    _confirm(args, "CREATE-LESSON")
+    name = args.name or load_manifest(args.manifest)["title"]
+    client = CircleClient(load_settings(Path(args.env_file)), timeout=args.timeout)
+    if not args.execute:
+        _emit(args, {"success": True, "dry_run": True, "operation": "create_lesson", "space_id": args.space_id,
+                     "section_id": args.section_id, "name": name, "status": "draft"})
+        return
+    result = client.create_course_lesson(args.space_id, args.section_id, name)
+    _emit(args, {"success": True, "dry_run": False, "lesson_id": result.get("id"), "status": result.get("status"),
+                 "name": result.get("name")})
+
+
+def _browser_session(args: argparse.Namespace):
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ValueError("this command needs the browser extra: uv pip install -e '.[browser]'") from exc
+    settings = load_settings(Path(args.env_file))
+    return sync_playwright, settings, urlsplit(settings.base_url).hostname or ""
+
+
+def cmd_fill_lesson(args: argparse.Namespace) -> None:
+    _confirm(args, "FILL-LESSON")
+    manifest = load_manifest(args.manifest)
+    plan = {"operation": "fill_lesson", "space_id": args.space_id, "lesson_id": args.lesson_id,
+            "title": manifest["title"], **manifest_summary(manifest), "thumbnail": args.thumbnail,
+            "save": not args.no_save, "cdp": args.cdp}
+    if not args.execute:
+        _emit(args, {"success": True, "dry_run": True, **plan})
+        return
+    sync_playwright, settings, host = _browser_session(args)
+    client = CircleClient(settings, timeout=args.timeout)
+    cache = UploadCache(Path(args.upload_cache))
+    blobs = {}
+    for item in manifest["items"]:
+        if "media" in item and item["media"] not in blobs:
+            blobs[item["media"]], uploaded = cache.get_or_upload(item["media"], client.upload_image)
+            if uploaded:
+                print(f"uploaded {Path(item['media']).name}", file=sys.stderr)
+    parts = build_parts(manifest, blobs)
+    with sync_playwright() as p:
+        _browser, page = connect_page(p, args.cdp, host)
+        result = fill_lesson(
+            page, url=editor_url(settings.base_url, args.space_id, args.lesson_id), lesson_id=args.lesson_id,
+            title=manifest["title"], parts=parts, expected_media=sum(1 for i in manifest["items"] if "media" in i),
+            thumbnail=args.thumbnail, save=not args.no_save, allow_published=args.allow_published)
+    _emit(args, {"success": True, "dry_run": False, **plan, **result})
+
+
+def cmd_lesson_featured_video(args: argparse.Namespace) -> None:
+    _confirm(args, "LESSON-FEATURED-VIDEO")
+    plan = {"operation": "lesson_featured_video", "space_id": args.space_id, "lesson_id": args.lesson_id,
+            "video": args.video, "cdp": args.cdp}
+    if not Path(args.video).is_file():
+        raise ValueError(f"video not found: {args.video}")
+    if not args.execute:
+        _emit(args, {"success": True, "dry_run": True, **plan})
+        return
+    sync_playwright, settings, host = _browser_session(args)
+    with sync_playwright() as p:
+        browser, page = connect_page(p, args.cdp, host)
+        result = upload_featured_video(page, browser, url=editor_url(settings.base_url, args.space_id, args.lesson_id),
+                                       lesson_id=args.lesson_id, video=args.video, allow_published=args.allow_published,
+                                       log=lambda m: print(m, file=sys.stderr))
+    _emit(args, {"success": True, "dry_run": False, **plan, **result})
+
+
+def cmd_lesson_media_settings(args: argparse.Namespace) -> None:
+    _confirm(args, "LESSON-MEDIA-SETTINGS")
+    chapters = parse_chapters(Path(args.chapters).read_text()) if args.chapters else None
+    if not (args.vtt or chapters or args.video_thumbnail):
+        raise ValueError("nothing to set: pass --vtt, --chapters and/or --video-thumbnail")
+    plan = {"operation": "lesson_media_settings", "space_id": args.space_id, "lesson_id": args.lesson_id,
+            "vtt": args.vtt, "chapters": len(chapters or []), "video_thumbnail": args.video_thumbnail, "cdp": args.cdp}
+    if not args.execute:
+        _emit(args, {"success": True, "dry_run": True, **plan,
+                     "chapter_list": [f"{mmss(s)} {t}" for s, t in chapters or []]})
+        return
+    sync_playwright, settings, host = _browser_session(args)
+    with sync_playwright() as p:
+        _browser, page = connect_page(p, args.cdp, host)
+        result = set_media_settings(page, url=editor_url(settings.base_url, args.space_id, args.lesson_id),
+                                    vtt=args.vtt, chapters=chapters, video_thumbnail=args.video_thumbnail,
+                                    allow_published=args.allow_published, log=lambda m: print(m, file=sys.stderr))
+    _emit(args, {"success": True, "dry_run": False, **plan, **result})
+
+
+def _add_course_admin_parsers(subparsers) -> None:
+    def live(parser, token: str) -> None:
+        parser.add_argument("--execute", action="store_true", help="Perform the write (default: dry run)")
+        parser.add_argument("--confirm", help=f"Must be {token} with --execute")
+        parser.add_argument("--timeout", type=float, default=30)
+
+    def browser(parser) -> None:
+        parser.add_argument("--cdp", default="http://127.0.0.1:9333",
+                            help="CDP endpoint of a Chrome started with open-browser")
+        parser.add_argument("--allow-published", action="store_true",
+                            help="Also edit a lesson that is already published (needs explicit approval)")
+
+    p = subparsers.add_parser("course-sections", help="List every section and lesson of a course, drafts included")
+    p.add_argument("-s", "--space-id", type=int, required=True)
+    p.add_argument("--timeout", type=float, default=30)
+    p.set_defaults(handler=cmd_course_sections)
+
+    p = subparsers.add_parser("create-section", help="Append a course section (dry-run by default)")
+    p.add_argument("-s", "--space-id", type=int, required=True)
+    p.add_argument("--name", required=True)
+    live(p, "CREATE-SECTION")
+    p.set_defaults(handler=cmd_create_section)
+
+    p = subparsers.add_parser("rename-section", help="Rename a course section (dry-run by default)")
+    p.add_argument("-s", "--space-id", type=int, required=True)
+    p.add_argument("--section-id", type=int, required=True)
+    p.add_argument("--name", required=True)
+    live(p, "RENAME-SECTION")
+    p.set_defaults(handler=cmd_rename_section)
+
+    p = subparsers.add_parser("create-lesson", help="Append a draft lesson to a section (dry-run by default)")
+    p.add_argument("-s", "--space-id", type=int, required=True)
+    p.add_argument("--section-id", type=int, required=True)
+    name = p.add_mutually_exclusive_group(required=True)
+    name.add_argument("--name")
+    name.add_argument("--manifest", help="Take the name from a lesson manifest's title")
+    live(p, "CREATE-LESSON")
+    p.set_defaults(handler=cmd_create_lesson)
+
+    p = subparsers.add_parser("fill-lesson", help="Fill a draft lesson from a manifest in the visible browser")
+    p.add_argument("-s", "--space-id", type=int, required=True)
+    p.add_argument("--lesson-id", type=int, required=True)
+    p.add_argument("--manifest", required=True, help='JSON {"title", "items": [{"html"} | {"media", "kind", "portrait"}]}')
+    p.add_argument("--thumbnail", help="Lesson thumbnail image (1280x720 recommended)")
+    p.add_argument("--no-save", action="store_true", help="Fill the editor but do not click Save")
+    p.add_argument("--upload-cache", default="data/course_uploads.json", help="Direct-upload cache file")
+    browser(p)
+    live(p, "FILL-LESSON")
+    p.set_defaults(handler=cmd_fill_lesson)
+
+    p = subparsers.add_parser("lesson-featured-video", help="Upload a lesson's featured video and Save")
+    p.add_argument("-s", "--space-id", type=int, required=True)
+    p.add_argument("--lesson-id", type=int, required=True)
+    p.add_argument("--video", required=True)
+    browser(p)
+    live(p, "LESSON-FEATURED-VIDEO")
+    p.set_defaults(handler=cmd_lesson_featured_video)
+
+    p = subparsers.add_parser("lesson-media-settings",
+                              help="Custom transcript, chapters and video thumbnail of a lesson's featured video")
+    p.add_argument("-s", "--space-id", type=int, required=True)
+    p.add_argument("--lesson-id", type=int, required=True)
+    p.add_argument("--vtt", help="Custom WebVTT transcript")
+    p.add_argument("--chapters", help="Text file, one 'MM:SS Title' per line, first at 00:00")
+    p.add_argument("--video-thumbnail", help="Custom thumbnail (poster) image for the video")
+    browser(p)
+    live(p, "LESSON-MEDIA-SETTINGS")
+    p.set_defaults(handler=cmd_lesson_media_settings)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="circle-client",
@@ -1313,11 +1537,12 @@ def build_parser() -> argparse.ArgumentParser:
     lesson_comments.add_argument("--timeout", type=float, default=30)
     lesson_comments.set_defaults(handler=cmd_lesson_comments)
 
+    _add_course_admin_parsers(subparsers)
+
     # Accept global flags after a subcommand too, matching the documented examples.
     for subparser in subparsers.choices.values():
         subparser.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
         subparser.add_argument("--env-file", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
-
     return parser
 
 

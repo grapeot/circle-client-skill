@@ -152,11 +152,20 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 .venv/bin/circle-client lesson-comments -s 9000000 --section-id 9000001 --lesson-id 9000002
 .venv/bin/circle-client lesson-comments -s 9000000 --section-id 9000001 --lesson-id 9000002 --focus 9000003
 .venv/bin/circle-client lesson-comments -s 9000000 --section-id 9000001 --lesson-id 9000002 --focus 9000004
+
+# 课程管理：section、Draft lesson、lesson 编辑器（写操作默认 dry-run；浏览器命令连 open-browser 开的 Chrome）
+.venv/bin/circle-client course-sections -s 9000000                                      # 含 Draft 和空 section（只读）
+.venv/bin/circle-client create-section -s 9000000 --name "Bonus Module" --execute --confirm CREATE-SECTION
+.venv/bin/circle-client rename-section -s 9000000 --section-id 9000001 --name "..." --execute --confirm RENAME-SECTION
+.venv/bin/circle-client create-lesson -s 9000000 --section-id 9000001 --manifest lessons/01.json --execute --confirm CREATE-LESSON
+.venv/bin/circle-client fill-lesson -s 9000000 --lesson-id 9000002 --manifest lessons/01.json [--thumbnail cover.png] --cdp http://127.0.0.1:9333 --execute --confirm FILL-LESSON
+.venv/bin/circle-client lesson-featured-video -s 9000000 --lesson-id 9000002 --video intro.mp4 --execute --confirm LESSON-FEATURED-VIDEO
+.venv/bin/circle-client lesson-media-settings -s 9000000 --lesson-id 9000002 --vtt subs.vtt --chapters chapters.txt --video-thumbnail cover.png --execute --confirm LESSON-MEDIA-SETTINGS
 ```
 
 `fetch` 默认在连续 100 条已读记录后停止。用户明确要求完整历史审计时才使用 `--stop-after-consecutive-read 0`。
 
-所有 mutation 命令（create-post、update-post、delete-post、reply-post、upload-image、chat-send、update-chat-message、reset-count、mark-notification-read）默认 dry-run。只给 `--room-uuid` 时 preflight 不发请求；用 `--space-id` 或 lesson id 解析 room 时会先发只读 GET。Live 执行需同时提供 `--execute --confirm <ACTION>`，且用户当次明确授权。
+所有 mutation 命令（create-post、update-post、delete-post、reply-post、upload-image、chat-send、update-chat-message、reset-count、mark-notification-read，以及课程管理的 create-section、rename-section、create-lesson、fill-lesson、lesson-featured-video、lesson-media-settings）默认 dry-run。只给 `--room-uuid` 时 preflight 不发请求；用 `--space-id` 或 lesson id 解析 room 时会先发只读 GET。Live 执行需同时提供 `--execute --confirm <ACTION>`，且用户当次明确授权。
 
 ## 课程内容与 lesson comments
 
@@ -199,7 +208,8 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 - 不打印、总结或写入 tracked 文件中的 JWT、Cookie、CSRF token 或原始 cURL。
 - `.env` 和 `data/` 都是本地私密状态，不能提交。
 - `fetch` 和 `count` 是 GET。
-- `course-lessons`、`course-lesson`、`lesson-comments`、`search-mentions`、`mention-sgids` 都是只读 GET。
+- `course-lessons`、`course-lesson`、`course-sections`、`lesson-comments`、`search-mentions`、`mention-sgids` 都是只读 GET。
+- 课程管理的写命令默认 dry-run（dry-run 不连浏览器、不上传）；live 需要 `--execute --confirm <ACTION>` 和用户当次授权。浏览器命令只编辑 Draft lesson，`--allow-published` 需要用户对这次修改单独授权。
 - `update-chat-message` 默认 dry-run；live 执行必须同时使用 `--execute --confirm UPDATE-CHAT-MESSAGE`，并获得用户对当次动作的明确授权。
 - `reset-count` 默认 dry-run；live 执行必须同时使用 `--execute --confirm RESET-COUNT`，并获得用户对当次动作的明确授权。
 - `mark-notification-read <id>` 把单条通知标记已读（`PATCH /internal_api/notifications/<id>/mark_as_read`，cookie+CSRF，200/204 均视为成功）；默认 dry-run，live 必须 `--execute --confirm MARK-NOTIFICATION-READ` 且当次授权。已读是服务端状态：`read_at` 落库后该通知从 unread fetch 中消失、`count` 下降；只读 comment 页面不会写 `read_at`，只有 inbox 里点开通知或本命令才会。
@@ -240,6 +250,21 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 帖子发布后给视频补字幕和章节（帖子页视频右上角 Customize media 对话框）是对已发布帖子的修改：要用户对这一次修改明确授权，agent 点 Save 后立刻用 `video.textTracks` 回读。英文讲座不要用 Circle 的自动转写，上传自制的中英双语 .vtt；时间轴映射、按比例切分、双语组装和校验用离线模块 `circle_client_skill.subtitles`。
 
 活动回放帖特有的流程（从空间归纳惯例、帖子结构与标题模板 `<活动标题>｜<系列名>回放`、录像里他人发言的处理与时间戳平移、起草 → 事实核对 → voice rewrite → surgical fix、发布后的双语字幕与章节、相关的坑）见 [`references/recording_posts.md`](references/recording_posts.md)；它的编辑器部分同样引用上面的通用文档。
+
+## 课程 lesson（批量搬教材）
+
+**原则：新建的 section 和 lesson 一律是 Draft；浏览器命令发现 lesson 已发布就拒绝（除非 `--allow-published` 且用户对这次修改明确授权）；Publish 由人点。**
+
+分工：**机械步骤用 CLI，判断留给 agent。** 建 section / lesson、按清单填正文、上传 featured 视频、字幕、章节、缩略图都是命令，命令内部处理了踩过的坑（保存前等表单同步、首尾空段落、悬停才出现的按钮、对话框内 seek、删章节的二次确认、缩略图裁剪对话框），并在保存后回读核对。agent 要做的是：先读几个现有 lesson 归纳这门课的写法（标题、多语言排法、视频 lesson 模板），再把教材转成 **lesson 清单**（`{"title", "items": [{"html"} | {"media", "kind": "image"|"video", "portrait"}]}`；表格、行内代码、公式要在这一步转换掉，编辑器没有这些节点），然后按顺序跑命令。
+
+```bash
+.venv/bin/circle-client open-browser --path /c/example-course --port 9333 --profile-dir data/visible_browser/profile
+.venv/bin/circle-client course-sections -s 9000000
+.venv/bin/circle-client create-lesson -s 9000000 --section-id 9000001 --manifest out/01.json --execute --confirm CREATE-LESSON
+.venv/bin/circle-client fill-lesson -s 9000000 --lesson-id 9000002 --manifest out/01.json --execute --confirm FILL-LESSON
+```
+
+完整流程、清单格式、章节文件格式、每个命令背后的接口和坑、交付前核对清单见 [`references/course_lessons.md`](references/course_lessons.md)。
 
 ## 活动（event）
 
