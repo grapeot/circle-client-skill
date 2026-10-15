@@ -308,6 +308,11 @@ class DashboardCache:
             self._entries[key] = {"target_ids": sorted(target_ids), "rows": rows}
         return rows
 
+    def invalidate(self, key: tuple[Any, ...]) -> None:
+        """Drop one context's cached rows so the next refresh re-reads it."""
+        with self._lock:
+            self._entries.pop(key, None)
+
 
 def _enrich_context(
     client: CircleClient,
@@ -319,6 +324,7 @@ def _enrich_context(
     first = notifications[0]
     context: dict[str, Any] = {
         "kind": kind,
+        "context_id": key[1] if kind in ("room", "post") else None,
         "title": first.get("notifiable_title"),
         "space_title": first.get("space_title"),
         "new_count": len(notifications),
@@ -570,22 +576,22 @@ class DashboardServer:
     def _row_target_kind(self, row: dict[str, Any]) -> str:
         return "chat_room_message" if row.get("kind") == "message" else "comment"
 
-    def _find_row(self, kind: str, target_id: int) -> dict[str, Any] | None:
-        state = self.last_state
-        if state is None:
-            return None
-        for section in state.get("sections", []):
-            for context in section.get("contexts", []):
-                if context.get("error"):
-                    continue
-                for row in context.get("rows", []):
-                    if row.get("missing"):
-                        continue
-                    if self._row_target_kind(row) == kind and int(row.get("id") or 0) == int(target_id):
-                        return row
-        return None
+    def _cache_key_for(self, kind: str, context: dict[str, Any]) -> tuple[Any, ...]:
+        context_id = context.get("context_id")
+        return ("room", context_id) if kind == "chat_room_message" else ("post", context_id)
 
-    def _validate_target(self, notification_id: int, kind: str, target_id: int) -> None:
+    def _locate(
+        self,
+        kind: str,
+        target_id: int,
+        notification_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Find the context+row this reaction targets.
+
+        With notification_id set (unread-target path) the row must carry that
+        notification; without it, any row visible on the page qualifies. The
+        context is needed to invalidate its enrichment cache afterwards.
+        """
         state = self.last_state
         if state is None:
             raise ActionError("当前没有 state；先刷新", 409)
@@ -593,16 +599,27 @@ class DashboardServer:
             for context in section.get("contexts", []):
                 if context.get("error"):
                     continue
-                for target in context.get("targets", []):
-                    ids = set(target.get("notification_ids") or [])
-                    info = target.get("target") or {}
-                    if (
-                        notification_id in ids
-                        and info.get("kind") == kind
-                        and int(info.get("id") or 0) == int(target_id)
-                    ):
-                        return
-        raise ActionError("该通知与目标对不上；请刷新页面", 409)
+                if kind != "chat_room_message" and context.get("kind") != "post":
+                    continue
+                if kind == "chat_room_message" and context.get("kind") != "room":
+                    continue
+                if notification_id is None:
+                    for row in context.get("rows", []):
+                        if row.get("missing"):
+                            continue
+                        if self._row_target_kind(row) == kind and int(row.get("id") or 0) == int(target_id):
+                            return context
+                else:
+                    for target in context.get("targets", []):
+                        ids = set(target.get("notification_ids") or [])
+                        info = target.get("target") or {}
+                        if (
+                            notification_id in ids
+                            and info.get("kind") == kind
+                            and int(info.get("id") or 0) == int(target_id)
+                        ):
+                            return context
+        raise ActionError("该消息不在当前页面上下文里；请刷新", 404)
 
     def react(self, payload: dict[str, Any]) -> dict[str, Any]:
         notification_id = payload.get("notification_id")
@@ -615,15 +632,10 @@ class DashboardServer:
         if notification_id is None:
             if not isinstance(target_id, int):
                 raise ActionError("target_id 必须是整数")
-            with self.state_lock:
-                row = self._find_row(kind, target_id)
-            if row is None:
-                raise ActionError("该消息不在当前页面上下文里；请刷新", 404)
-        else:
-            if not isinstance(notification_id, int) or not isinstance(target_id, int):
-                raise ActionError("notification_id / target_id 必须是整数")
-            with self.state_lock:
-                self._validate_target(notification_id, kind, target_id)
+        elif not isinstance(notification_id, int) or not isinstance(target_id, int):
+            raise ActionError("notification_id / target_id 必须是整数")
+        with self.state_lock:
+            context = self._locate(kind, target_id, notification_id if isinstance(notification_id, int) else None)
         if kind == "comment":
             if reaction_type not in COMMENT_REACTION_TYPE_NAMES:
                 raise ActionError(f"不支持的 comment 反应类型 {reaction_type!r}")
@@ -636,6 +648,7 @@ class DashboardServer:
             self.client.create_reaction(kind, target_id, unicode_code, execute=True)
         else:
             raise ActionError(f"不支持的 reaction target {kind!r}")
+        self.cache.invalidate(self._cache_key_for(kind, context))
         marked_read = False
         read_error = None
         if notification_id is not None:

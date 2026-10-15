@@ -97,11 +97,17 @@ function allIds(row) { return row.notification_ids || []; }
 function rowDone(row) { const ids = allIds(row); return ids.length > 0 && ids.every(id => done.has(id)); }
 function glyphOf(unicode) { const e = (STATE.emotes || []).find(x => x.unicode === unicode); return (e && e.glyph) || '🙂'; }
 
+let refreshTimer = null;
+function scheduleRefresh(delay) {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => { refreshTimer = null; refresh(); }, delay || 400);
+}
 async function act(path, body, okNote) {
   try {
     await api(path, { method: 'POST', body: JSON.stringify(body) });
     clearFail();
     if (okNote) { okNote(); }
+    scheduleRefresh();
   } catch (e) { fail('操作失败：' + e.message); }
   finally { spinner(false); }
 }
@@ -114,11 +120,11 @@ function react(row, payload) {
     target_id: row.id,
     kind: kind,
     ...payload,
-  }, () => { if (hasNotification) allIds(row).forEach(id => done.add(id)); setTimeout(refresh, 2500); });
+  }, () => { if (hasNotification) allIds(row).forEach(id => done.add(id)); });
 }
 function markRead(row) {
   const ids = allIds(row); let i = 0;
-  const next = () => { if (i >= ids.length) { render(); return; }
+  const next = () => { if (i >= ids.length) { scheduleRefresh(); render(); return; }
     const id = ids[i++]; spinner(true, '标记中…');
     api('/api/mark_read', { method: 'POST', body: JSON.stringify({ notification_id: id }) })
       .catch(e => { clearFail(); fail('标记已读失败：' + e.message); })
@@ -135,7 +141,7 @@ function markGroup(group, btn) {
   }
   btn.dataset.confirm = ''; btn.classList.remove('primary');
   const ids = group.notification_ids || []; let i = 0;
-  const next = () => { if (i >= ids.length) { render(); return; }
+  const next = () => { if (i >= ids.length) { scheduleRefresh(); render(); return; }
     const id = ids[i++]; spinner(true, `已读 ${i}/${ids.length}…`);
     api('/api/mark_read', { method: 'POST', body: JSON.stringify({ notification_id: id }) })
       .catch(e => { clearFail(); fail('标记已读失败：' + e.message); })

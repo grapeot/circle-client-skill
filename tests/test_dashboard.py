@@ -457,9 +457,36 @@ def test_server_validate_target(tmp_path) -> None:
     client.fetch_notifications = lambda: _doc([_notification(id=1, notifiable_id=3), _notification(id=2, action="comment_mention", notifiable_id=3)])  # type: ignore[method-assign]
     server = DashboardServer({}, port=8999, state_dir=tmp_path, client=client)
     server.build_state()
-    server._validate_target(1, "comment", 3)
+    found = server._locate("comment", 3, notification_id=1)
+    assert found["kind"] == "post"
     with pytest.raises(ActionError):
-        server._validate_target(1, "comment", 999)
+        server._locate("comment", 999, notification_id=1)
+
+
+def test_react_invalidates_context_cache(tmp_path) -> None:
+    root_msg = {
+        "id": 9000002,
+        "chat_room_participant_id": 5,
+        "created_at": "2026-10-13T08:00:00.000Z",
+        "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "root"}]}]}, "attachments": []},
+        "replies_count": 0,
+        "reactions": [],
+    }
+    client = FakeClient(
+        messages=[root_msg],
+        participants=[{"id": 5, "name": "Drew", "community_member_id": 88}],
+    )
+    client.fetch_notifications = lambda: _doc([_room_notification(id=50)])  # type: ignore[method-assign]
+    server = DashboardServer({}, port=8999, state_dir=tmp_path, client=client)
+    server.build_state()
+
+    def message_calls() -> int:
+        return sum(1 for c in client.calls if c[0] == "list_chat_messages")
+
+    assert message_calls() == 1
+    server.react({"notification_id": 50, "kind": "chat_room_message", "target_id": 9000002, "unicode": "heart"})
+    server.build_state()  # cache was invalidated for this context -> refetch
+    assert message_calls() == 2
 
 
 def test_server_state_persists_artifact(tmp_path) -> None:

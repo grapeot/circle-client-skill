@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-15 Reaction confirmation from real state (no optimistic painting)
+
+- 用户反馈：点完红心要在页面上看到真实的 ❤️×1，不接受本地画假状态（"不希望这是个 UI UX trick"）。
+- 机制：react 成功后失效该 context 的 enrichment 缓存，前端在动作后做 400ms 防抖刷新（连续点击合并成一次），行上的反应数从 Circle 回读的真实 state 渲染；本地 done 灰显只作为已读消失前的过渡标记，不承担反应生效的证明。
+- context 增加 `context_id`（room uuid / post id），react 按 target kind 映射回缓存 key 做 `DashboardCache.invalidate`。
+
 ### 2026-10-15 Reactions on every thread row
 
 - 用户澄清用法：想在线程里浏览学员作业（含旧的、非未读行）时直接给个心，不点进 Circle。
