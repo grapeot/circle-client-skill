@@ -27,6 +27,24 @@ EMOJI_GLYPHS: dict[str, str] = {
     "2b50": "⭐",
 }
 
+
+def unicode_glyph(code: Any) -> str:
+    """Render a Circle unicode reaction code as an actual emoji character.
+
+    Codes are dash-separated hex codepoints (e.g. ``2764-fe0f`` -> ❤️,
+    ``1f64f-1f3fd`` -> skin-toned pray). Computed directly so any emoji works
+    without a hand-maintained table.
+    """
+    if not isinstance(code, str):
+        return "🙂"
+    chars: list[str] = []
+    for part in code.split("-"):
+        try:
+            chars.append(chr(int(part, 16)))
+        except ValueError:
+            return "🙂"
+    return "".join(chars)
+
 # Post comments use Circle's legacy named like types (POST /user_likes with
 # ``user_likeable_type``), a separate system from the unicode /reactions
 # pipeline used by chat messages. Keys come from the comment's
@@ -63,9 +81,9 @@ def is_valid_unicode(code: str) -> bool:
 
 
 def reaction_glyph(unicode: str, emoji_label: Any = None) -> str:
-    literal = EMOJI_GLYPHS.get(unicode) if isinstance(unicode, str) else None
-    if literal:
-        return literal
+    computed = unicode_glyph(unicode)
+    if computed != "🙂":
+        return computed
     if isinstance(emoji_label, str) and emoji_label:
-        return emoji_label
+        return emoji_label[0]
     return "🙂"

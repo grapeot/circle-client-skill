@@ -24,10 +24,10 @@ from .formatters import _body_text
 from .reactions import (
     COMMENT_REACTION_TYPE_NAMES,
     COMMENT_REACTION_TYPES,
-    EMOJI_GLYPHS,
     REACTION_EMOTES,
     is_valid_unicode,
     resolve_unicode,
+    unicode_glyph,
 )
 from .rich_text import rich_text_message_text
 
@@ -597,7 +597,7 @@ def assemble_state(
         "host": (document.get("source") or {}).get("host"),
         "verified_reaction_kinds": list(verified_kinds),
         "emotes": [
-            {"name": name, "unicode": code, "glyph": EMOJI_GLYPHS.get(code, "🙂")}
+            {"name": name, "unicode": code, "glyph": unicode_glyph(code)}
             for name, code in emotes.items()
         ],
         "emotes_config_warning": emotes_warning,

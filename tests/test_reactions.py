@@ -67,6 +67,24 @@ def test_resolve_unicode_maps_semantic_names() -> None:
     assert resolve_unicode("2764-fe0f") == "2764-fe0f"
 
 
+def test_unicode_glyph_computes_any_emoji() -> None:
+    from circle_client_skill.reactions import unicode_glyph
+
+    assert unicode_glyph("2764-fe0f") == "❤️"
+    assert unicode_glyph("1f64f") == "🙏"
+    assert unicode_glyph("1f64f-1f3fd") == "🙏🏽"
+    assert unicode_glyph("2b50") == "⭐"
+    assert unicode_glyph("zzz") == "🙂"
+    assert unicode_glyph(None) == "🙂"
+
+
+def test_reaction_glyph_falls_back_to_label_initial() -> None:
+    from circle_client_skill.reactions import reaction_glyph
+
+    assert reaction_glyph("1f64f", "pray") == "🙏"
+    assert reaction_glyph("bogus-code", "pray") == "p"
+
+
 def test_resolve_unicode_rejects_garbage() -> None:
     for bad in ("", "  ", "heart-eyes", "not-a-code!"):
         with pytest.raises(ValueError):

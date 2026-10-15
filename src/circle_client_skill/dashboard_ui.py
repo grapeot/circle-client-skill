@@ -102,7 +102,10 @@ function avatar(name) {
 }
 function allIds(row) { return row.notification_ids || []; }
 function rowDone(row) { const ids = allIds(row); return ids.length > 0 && ids.every(id => done.has(id)); }
-function glyphOf(unicode) { const e = (STATE.emotes || []).find(x => x.unicode === unicode); return (e && e.glyph) || '🙂'; }
+function glyphOf(unicode) {
+  try { return String((unicode || '').split('-').map(h => String.fromCodePoint(parseInt(h, 16))).join('')) || '🙂'; }
+  catch (e) { return '🙂'; }
+}
 
 let refreshTimer = null;
 function scheduleRefresh(delay) {
