@@ -834,6 +834,131 @@ class CircleClient:
             "status_code": response.status_code,
         }
 
+    def create_reaction(
+        self,
+        kind: str,
+        target_id: int,
+        unicode_code: str,
+        *,
+        execute: bool = False,
+    ) -> dict[str, Any]:
+        """Add an emoji reaction to a reactable target (captured wire contract).
+
+        ``POST /internal_api/reactions`` with ``{"unicode": <code>, "<kind>": <id>}``.
+        Verified on the wire only for ``chat_room_message``; other kinds stay
+        behind the dashboard's verify gate. Follows the dry-run-first mutation
+        contract used by ``mark_notification_read``.
+        """
+        from .reactions import REACTION_TARGET_KEYS
+
+        target_id = int(target_id)
+        if target_id <= 0:
+            raise ValueError("target_id must be positive")
+        if kind not in REACTION_TARGET_KEYS:
+            raise ValueError(f"Unsupported reaction target kind: {kind!r}")
+        unicode_code = (unicode_code or "").strip()
+        if not unicode_code:
+            raise ValueError("unicode code is required")
+        url = f"{self.settings.base_url}/internal_api/reactions"
+        preflight = {
+            "operation": "create_reaction",
+            "method": "POST",
+            "url": url,
+            "target_kind": kind,
+            "target_id": target_id,
+            "unicode": unicode_code,
+            "csrf_present": bool(self.settings.csrf_token),
+            "cookie_present": bool(self.settings.cookie),
+        }
+        if not execute:
+            return {"success": True, "dry_run": True, **preflight}
+        if not self.settings.csrf_token or not self.settings.cookie:
+            raise CircleClientError(
+                "create-reaction requires a current browser Cookie and X-CSRF-Token"
+            )
+        response = self._request(
+            "POST",
+            url,
+            json_body={"unicode": unicode_code, REACTION_TARGET_KEYS[kind]: target_id},
+            mutation=True,
+        )
+        return {
+            "success": True,
+            "dry_run": False,
+            **preflight,
+            "reactions": response if isinstance(response, (dict, list)) else None,
+        }
+
+    def list_room_participants(self, chat_room_uuid: str, *, page: int = 1) -> dict[str, Any]:
+        """List display names for a chat room's participants (read-only).
+
+        Message records carry numeric ``chat_room_participant_id`` but no name;
+        this endpoint maps ids to display names for rendering threads.
+        """
+        return self._request(
+            "GET",
+            f"{self.settings.base_url}/internal_api/chat_rooms/{chat_room_uuid}/participants",
+            params={"page": str(page)},
+        )
+
+    def create_comment_like(
+        self,
+        comment_id: int,
+        *,
+        reaction_type: str = "like",
+        execute: bool = False,
+    ) -> dict[str, Any]:
+        """Like/love/... a post comment (captured wire contract: POST /user_likes).
+
+        Body ``{"user_likeable_type": "Comment", "user_likeable_id": <id>,
+        "reaction_type": <named type>}``. Sending the same payload again toggles
+        the like off in the Circle UI; we expose add-only (no un-like).
+        """
+        from .reactions import COMMENT_REACTION_TYPE_NAMES
+
+        comment_id = int(comment_id)
+        if comment_id <= 0:
+            raise ValueError("comment_id must be positive")
+        reaction_type = (reaction_type or "").strip()
+        if reaction_type not in COMMENT_REACTION_TYPE_NAMES:
+            raise ValueError(
+                f"Unsupported comment reaction type: {reaction_type!r}; "
+                f"use one of {sorted(COMMENT_REACTION_TYPE_NAMES)}"
+            )
+        url = f"{self.settings.base_url}/user_likes"
+        preflight = {
+            "operation": "comment_like",
+            "method": "POST",
+            "url": url,
+            "target_kind": "comment",
+            "target_id": comment_id,
+            "reaction_type": reaction_type,
+            "csrf_present": bool(self.settings.csrf_token),
+            "cookie_present": bool(self.settings.cookie),
+        }
+        if not execute:
+            return {"success": True, "dry_run": True, **preflight}
+        if not self.settings.csrf_token or not self.settings.cookie:
+            raise CircleClientError(
+                "create-comment-like requires a current browser Cookie and X-CSRF-Token"
+            )
+        response = self._request(
+            "POST",
+            url,
+            json_body={
+                "user_likeable_type": "Comment",
+                "user_likeable_id": comment_id,
+                "reaction_type": reaction_type,
+            },
+            mutation=True,
+        )
+        return {
+            "success": True,
+            "dry_run": False,
+            **preflight,
+            "response": response if isinstance(response, (dict, list)) else None,
+        }
+
     def fetch_notifications(
         self,
         *,

@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import os
 import re
 import subprocess
 import sys
+import webbrowser
 from datetime import UTC, datetime
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -35,6 +37,7 @@ from .course_admin import (
     set_media_settings,
     upload_featured_video,
 )
+from .dashboard import create_dashboard_server
 from .formatters import (
     format_auth_status,
     format_chat_messages_table,
@@ -56,6 +59,7 @@ from .formatters import (
     format_unreplied_table,
 )
 from .opener import CATEGORIES, default_opener, open_sequentially, plan_targets
+from .reactions import resolve_unicode
 from .render import render_csv, render_html, render_markdown
 from .rich_text import build_rich_text_body
 
@@ -387,6 +391,24 @@ def cmd_mark_notification_read(args: argparse.Namespace) -> None:
         print(format_mutation_result(result, "mark-notification-read"))
 
 
+def cmd_react(args: argparse.Namespace) -> None:
+    if args.execute and args.confirm != "REACT":
+        raise ValueError("Live execution requires --confirm REACT")
+    if bool(args.emoji) == bool(args.unicode_code):
+        raise ValueError("provide exactly one of --emoji or --unicode")
+    unicode_code = resolve_unicode(args.emoji or args.unicode_code)
+    settings = load_settings(Path(args.env_file))
+    result = CircleClient(settings, timeout=args.timeout).create_reaction(
+        "chat_room_message", args.message_id, unicode_code, execute=args.execute
+    )
+    if args.json:
+        _print_json(result)
+    elif result.get("dry_run"):
+        print(format_mutation_dryrun({**result, "operation": "react"}))
+    else:
+        print(format_mutation_result(result, "react"))
+
+
 def cmd_render(args: argparse.Namespace) -> None:
     input_path = Path(args.input)
     document = json.loads(input_path.read_text(encoding="utf-8"))
@@ -461,6 +483,23 @@ def cmd_serve(args: argparse.Namespace) -> None:
             },
             ensure_ascii=False,
         ),
+        flush=True,
+    )
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.server_close()
+
+
+def cmd_dashboard(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    server, url = create_dashboard_server(
+        settings, port=args.port, state_dir=Path(args.directory), timeout=args.timeout
+    )
+    if not args.no_open:
+        webbrowser.open(url)
+    print(
+        json.dumps({"success": True, "url": url, "pid": os.getpid()}, ensure_ascii=False),
         flush=True,
     )
     try:
@@ -1248,6 +1287,21 @@ def build_parser() -> argparse.ArgumentParser:
     mark_notification_read.add_argument("--timeout", type=float, default=30)
     mark_notification_read.set_defaults(handler=cmd_mark_notification_read)
 
+    react = subparsers.add_parser(
+        "react",
+        help="Add an emoji reaction to a chat room message; dry-run unless --execute --confirm REACT",
+    )
+    react.add_argument("--message-id", type=int, required=True)
+    react.add_argument(
+        "--emoji",
+        help="Semantic emote name (heart, thumb_up, star)",
+    )
+    react.add_argument("--unicode", dest="unicode_code", help="Raw unicode reaction code (e.g. 2764-fe0f)")
+    react.add_argument("--execute", action="store_true")
+    react.add_argument("--confirm")
+    react.add_argument("--timeout", type=float, default=30)
+    react.set_defaults(handler=cmd_react)
+
     open_notifications = subparsers.add_parser(
         "open-notifications",
         help="Open notification URLs in the browser (dry-run unless --execute)",
@@ -1292,6 +1346,16 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="0.0.0.0")
     serve.add_argument("--port", type=int, default=8765)
     serve.set_defaults(handler=cmd_serve)
+
+    dashboard_cmd = subparsers.add_parser(
+        "dashboard",
+        help="Run the local one-stop notification dashboard (binds 127.0.0.1)",
+    )
+    dashboard_cmd.add_argument("--port", type=int, default=8780)
+    dashboard_cmd.add_argument("--no-open", action="store_true", help="Do not open a browser window")
+    dashboard_cmd.add_argument("--directory", default="data")
+    dashboard_cmd.add_argument("--timeout", type=float, default=30)
+    dashboard_cmd.set_defaults(handler=cmd_dashboard)
 
     spaces = subparsers.add_parser("spaces", help="List all visible spaces")
     spaces.add_argument("--timeout", type=float, default=30)

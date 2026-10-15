@@ -2,6 +2,56 @@
 
 ## Changelog
 
+### 2026-10-15 Rows slimmed to target threads + anchor-directed thread jump
+
+- 用户反馈：只 care 未读评论，room 卡片不该把整个默认窗口（一两天内所有 root）都铺上，评论也不该把没用的分页拉完。
+- room rows 收窄到「只渲染目标所在的 thread」：含目标线程的 root + 全部 replies 才进卡片，无关 root 不再渲染；评论分页加 `chains_resolved()` 提前停（全部目标与其祖先链都解析即停，不再机械翻满 5 页）。
+- 老 thread 命中走通知自带的锚点直达：`action_web_url` 的 `#message_<root>` 就是 thread 根 id——对不在窗口的目标直接 `fetch_chat_replies(root)`（一次请求、不需要 root 记录），去掉常见的全量向后扫描；backward walk 降级为无锚点时的最后手段（有界 12 页，每页 200 roots，捡回即解析+扫 replies）。
+- 缩进加强：按 depth 缩进 36px/层 + reply 行左侧 rail 线（`.row.reply` 边框）。
+- 两个收尾修复：①`_enrich_context` 的目标 annotation（actor/target/notification_ids）之前只写在被丢弃的拷贝里，卡片行拿不到——已在 annotated 列表上回填（这也意味着此前 UI 的行内反应走的是 react-only 路径、从未挂 mark-read；修复后未读目标行的反应恢复「反应+已读」语义）；②reply 行的父 root 记录不在 pool 时 depth 仍为 1（parent_id 恒定已知）；③reply_to 二遍扫描：父行若是未读 target，借用通知解析出的名字（实测 Andy Lee 的「同感同感」正确显示 ↩ Huang Shengxin）。
+
+### 2026-10-15 Thread organization for room rows and comments
+
+- 用户示例：lesson 讨论里「同感同感」其实是一条对别人 root 的 reply，但平铺渲染看不出来。
+- rows 组装改为 thread 组织：每行带 `parent_id` / `reply_to` / `depth`；room 行按「thread root 时间」排序、root 先于其 replies（单层 thread，回复缩进在 root 下），帖子评论按 root 时间序做完整 DFS（支持更深嵌套），missing 行垫底。
+- room 现在读作 feed：默认窗口里的全部 root 都渲染（保序），只有含目标/含 fetched replies 的 thread 展开；bare root 带 `hidden_replies` 计数提示（UI 显示「＋N 条回复未展示」）。
+- 作者名边界实测：课程 room 的 participants 列表覆盖全体成员（2400+ 人、per_page 钉死 100、SPA 也是懒加载）；`thread_participants_preview` 只带 mention 对象、没有作者。**名字按 best effort**：participants 前 3 页 + 通知自带 actor_name；取不到就只渲染 "?" chip（含缩进与 ↩ 结构表达回复关系，不阻塞可读性）。
+- 一次性探查脚本：`data/probe_rxn/discover_names.py`（课程页 participants 观察，结论 = 无按消息作者的便宜 endpoint）。
+
+### 2026-10-15 Reaction confirmation from real state (no optimistic painting)
+
+- 用户反馈：点完红心要在页面上看到真实的 ❤️×1，不接受本地画假状态（"不希望这是个 UI UX trick"）。
+- 机制：react 成功后失效该 context 的 enrichment 缓存，前端在动作后做 400ms 防抖刷新（连续点击合并成一次），行上的反应数从 Circle 回读的真实 state 渲染；本地 done 灰显只作为已读消失前的过渡标记，不承担反应生效的证明。
+- context 增加 `context_id`（room uuid / post id），react 按 target kind 映射回缓存 key 做 `DashboardCache.invalidate`。
+
+### 2026-10-15 Reactions on every thread row
+
+- 用户澄清用法：想在线程里浏览学员作业（含旧的、非未读行）时直接给个心，不点进 Circle。
+- react API 支持无 notification_id 的 react-only 路径（server 校验该消息/评论存在于当前页面上下文，不标已读）；未读目标行保持反应 + mark_as_read。UI 给每个非 missing 行渲染反应按钮。
+- 测试：react-only 路径（create_reaction 调用、无 mark_read、未知行 404）。
+
+### 2026-10-15 Room window misses (targets outside the default feed window)
+
+- 实测发现 lesson 讨论 room 的 messages endpoint 默认窗口只回最近 21 个 root，而 2025-02 的老 thread 仍会有 2026-10 的新 reply 未读（`#message_138871287` 老 root + 两条新 reply 都在窗口外）。此前把它们渲染成「该消息不在最近窗口内」+ 未知成员。
+- 修复：`build_room_rows` 在目标缺失时向后 cursor 翻页（`previous_per_page=200`，最多 12 页；无新 id/到底即停），随后扫描所有已知 root 的 replies 拾回目标线程。真实数据复测两个 context 全部解析、全页 0 missing。
+- missing 行 UI 只渲染提示 + 打开链接，不再渲染「未知成员」头像条（无内容时不给反应/已读按钮，避免没读内容就下手）。
+
+### 2026-10-15 Dashboard 排序与样式微调（用户反馈）
+
+- 讨论区排序改为 room → post → post_link 分层（lesson 讨论置顶，对齐旧 render 的分组顺序），同层内按最新活动倒序；stable sort 两步实现，补排序测试。
+- UI 微调：头像 chip 与用户名 flex 对齐（去掉 vertical-align hack）；页面/卡片/margin 全面放宽；「全部已读」加二次确认步（6 秒内再点一次才执行）。
+- 加新 emoji 不改代码：`data/emotes.json`（`{"名字": "unicode码"}`）增量扩展 chat 消息的快捷 emoji，无效条目跳过并在 state 带 warning；post 评论保持 Circle 固定的六种 named 类型。
+- 设计文档补实施状态注记（含与设计的差异清单）；V2 结论收编进 prd.md/rfc.md。
+
+### 2026-10-15 One-stop dashboard + reactions
+
+- 按 `docs/design_dashboard.md` 落地 V2：`dashboard` 命令（127.0.0.1:8780，自动开浏览器、`--no-open` 可关）+ `dashboard.py` / `dashboard_ui.py` + `tests/test_reactions.py` / `tests/test_dashboard.py`（全部离线）。
+- 新命令 `react`（chat 消息反应，dry-run-first + `--confirm REACT`）；client 新方法 `create_reaction`、`create_comment_like`、`list_room_participants`。
+- Reaction 双契约（都经 live round-trip 验证后开放）：chat 消息 `POST /internal_api/reactions` body `{"unicode","chat_room_message"}`（响应回显 `{"success","message","reaction"}`，消息记录的 `reactions` 数组可回读）；post 评论 `POST /user_likes` body `{"user_likeable_type":"Comment","user_likeable_id","reaction_type"}`（named 类型；comment 记录 `is_liked`/`reaction_summary.counts`/`current_user_reaction_type` 回读，counts like 5→6 实证）。验证都在账号主人自己的消息/评论上做，未触碰他人内容。
+- dashboard 页面三区：要回应的讨论（帖子评论按 post 聚合 31 个 context、lesson 讨论 21 个 room、线程时间正序 + 目标高亮）、点赞折叠组（一键已读逐条循环）、其他（FlaggedContent 不给一键已读）。真实数据首刷实测 ~35s（51 个 context 并行拉取），增量走缓存秒级；badge 用 count envelope 的 `count` 字段（client 层 `{"count", "raw"}`，raw 里才是 `new_notifications_count`）。
+- 交互语义按设计默认拍板：点 reaction = 反应 + 自动 mark_as_read；✓ 已读单独一条；回复不进 dashboard（可见浏览器原则）。
+- ruff 新增 per-file-ignores：dashboard*.py 的 RUF001（中文 UI 文案的全角标点是有意的）。
+
 ### 2026-10-13 Generic composer doc: inline images, portrait half-width, full screen, topics
 
 - 新增 `skills/references/browser_post_composer.md`：把「可见浏览器填写发帖编辑器」从回放帖文档里抽成通用流程，适用于任何空间的帖子。这次在一个项目分享空间里发图文加视频的普通帖，新摸清并写进去的：
@@ -173,3 +223,8 @@
 - `chat_room_participant_id` 是 **per-room** 的，不是账号级常量。同一个账号在不同 lesson 讨论 room 里有不同的 participant id（实测：拿另一个 room 的 id 去发，静默失败；换成本 room 的 id 才落帖）。用错 id 发 `chat-send` 时，Circle 仍返回 HTTP 202 和 `creation_uuid`，CLI 打印 "OK: sent"，但消息被静默丢弃，thread 里什么都没有——**202/creation_uuid 不能当作送达证据**。`--participant-id` 只能填目标 room 里本人的 id，从该 room 的 `GET /internal_api/chat_rooms/<uuid>/participants` 列表里按 `community_member_id` 认领自己的那一条。
 - 判断一条消息到底发出去没有，唯一可靠办法是**回读**：`list-chat-replies --room-uuid <uuid> --parent-message-id <root-id>`（或 `list-chat-messages`）里能看到新消息的 id 才算成功。只发不读、只看 CLI 的 OK，就会在失败时误报成功。
 - 对真实读者可见的发送（lesson 讨论回复、给成员回帖）要先 `open-browser` 打开目标页面：用户能当场看到发没发出去、能点进去看，同一个窗口也是回读和兜底路径。CLI 的 `chat-send` 保留给 test space 和脚本化场景，live 发送后仍必须回读核验。
+- 抓写请求要「guard 拦截 + CDP 层监听」组合：RouteGuard 只记 blocked URL 不记 body，所以要抓 payload 得另挂 `context.on("request")` 读 `request.post_data`（仍然全程 abort，零副作用）。评论 Like 的 endpoint 是 `POST /user_likes`，不在 `/internal_api/` 前缀下。
+- Playwright 无头探查时，JS `el.click()` 的事件 `isTrusted=false`，React 没反应（只出 analytics 噪音）；要用 Playwright locator 的真实点击。定位 UI 元素时 Circle 用的是 `data-testid`（不是 `testid`），评论文本锚点比猜测的 id 选择器稳。
+- 一个进程里嵌套两个 `sync_playwright()`（外面自己开一个再进 ProbeSession）会报 "Sync API inside the asyncio loop" 误报；用 ProbeSession 就别再包自己的 playwright。
+- 反应是两套系统：chat 消息走 unicode `/internal_api/reactions`，post 评论走 named 类型 `/user_likes`——同一个「红心」在不同内容上是不同 payload，不要归一成一个 endpoint。
+- `get_notification_count` 的 client 层返回是 `{"count": ..., "raw": {...}}` envelope；raw 里才有 `new_notifications_count`。dashboard 直接取 envelope 的 `count`。

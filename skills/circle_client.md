@@ -35,6 +35,25 @@ open data/index.html
 
 `render --format html` 已内置按类分组（Lesson comments / Comments / Likes / New members / Other）的响应式可点击列表，可点击跳转原帖；这就是"可视化通知"的标准答案。只有当用户明确要求聚合统计（类型分布、时间轴、TOP 互动者等）且现成 HTML 不满足时，才在 fetch JSON 上写一次性分析代码，不要为单次需求扩张 CLI contract。
 
+# Dashboard（one-stop 通知台，人用的交互面）
+
+当用户想"一条龙处理通知"（看完内容、点头像级反应、标已读，不逐条点开 Circle 网页）时，用 dashboard 取代 fetch+render 的静态视图：
+
+```bash
+.venv/bin/circle-client dashboard            # 127.0.0.1:8780，自动开浏览器；Ctrl-C 停
+```
+
+页面把未读按三个区组织：要回应的讨论（帖子评论按 post 聚合、lesson 评论按 room 聚合，线程按时间正序、新消息高亮、带上下文）、点赞（折叠成「N 人赞了《X》」行）、其他（成员/审核/live 链接）。每条新消息的动作条：反应（❤️/👍 或 comment 的 like/love/celebrate…）+ ✓已读 + 打开原页。反应成功会自动把该通知标已读（一次点击拉倒）。线程里的非未读行也能直接加反应（不标已读），浏览旧内容时不用离开页面。
+加新 emoji（chat/lesson 消息）：在 gitignored `data/emotes.json` 加 `{"名字": "unicode码"}`（如 `{"clap": "1f44f"}`），刷新页面即生效；post 评论的反应类型是 Circle 固定的六种 named 类型，不可扩展。
+
+工作机制与边界：
+
+- 服务端每次刷新重新 fetch 未读并做 enrichment（评论/消息正文走 `list_comments` / `list-chat-messages`），带 per-context 缓存和线程池；全部是只读 GET，首刷约几十秒，之后增量秒级。state 落 gitignored `data/dashboard.json`，动作追加入 `data/dashboard_log.jsonl`。
+- 反应按 target 类型分两套已验证契约：chat 消息 `POST /internal_api/reactions` body `{"unicode","chat_room_message"}`；post 评论 `POST /user_likes` body `{"user_likeable_type":"Comment","user_likeable_id","reaction_type"}`（named 类型 like/love/celebrate/support/insightful/funny，同一 payload 再发一次是在网页 UI 里 toggle 的语义；本工具只加不减，误点去网页手动取消）。未验证的 target 类型在代码里由 `VERIFIED_REACTION_KINDS` 门控，页面不显示反应按钮。
+- 服务只绑 127.0.0.1，校验 Origin；页面动作的每次点击 = 用户本人的一次明确授权（对应"人亲手点 Publish"）；server 不自动、不批量。CLI 的 `react` 命令仍走 dry-run + `--execute --confirm REACT`（agent 路径）。
+- 对真实读者的回复不在页面里做：反应/已读之外需要回复时点「打开」去 Circle 网页（可见浏览器原则不变）。
+- 设计文档：`docs/design_dashboard.md`。
+
 ## 批量打开通知（在浏览器里逐条打开）
 
 当用户说"把所有 lesson comment / lesson notification / 这些通知都打开"这类表达时，用 `open-notifications`：读已有的 fetch artifact，按类筛出通知，去重后逐条交给操作系统打开（macOS `open` / Linux `xdg-open`），每条之间 sleep。它不联网、不需要凭证，且**默认 dry-run**——先打印计划，加 `--execute --confirm OPEN-NOTIFICATIONS` 才真正打开：
@@ -118,8 +137,10 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 .venv/bin/circle-client count
 .venv/bin/circle-client reset-count
 .venv/bin/circle-client mark-notification-read <notification_id>
+.venv/bin/circle-client react --message-id <id> --emoji heart [--execute --confirm REACT]
 .venv/bin/circle-client open-notifications --input data/notifications.json --category lesson_comments
-.venv/bin/circle-client fetch --group inbox --per-page 100 --output data/notifications.json
+.venv/bin/circle-client open-notifications --input data/notifications.json --category lesson_comments --execute --confirm OPEN-NOTIFICATIONS
+.venv/bin/circle-client dashboard [--port 8780] [--no-open]
 .venv/bin/circle-client render --input data/notifications.json --format md --output data/notifications.md
 .venv/bin/circle-client render --input data/notifications.json --format csv --output data/notifications.csv
 .venv/bin/circle-client render --input data/notifications.json --format html --output data/index.html
@@ -213,6 +234,8 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 - `update-chat-message` 默认 dry-run；live 执行必须同时使用 `--execute --confirm UPDATE-CHAT-MESSAGE`，并获得用户对当次动作的明确授权。
 - `reset-count` 默认 dry-run；live 执行必须同时使用 `--execute --confirm RESET-COUNT`，并获得用户对当次动作的明确授权。
 - `mark-notification-read <id>` 把单条通知标记已读（`PATCH /internal_api/notifications/<id>/mark_as_read`，cookie+CSRF，200/204 均视为成功）；默认 dry-run，live 必须 `--execute --confirm MARK-NOTIFICATION-READ` 且当次授权。已读是服务端状态：`read_at` 落库后该通知从 unread fetch 中消失、`count` 下降；只读 comment 页面不会写 `read_at`，只有 inbox 里点开通知或本命令才会。
+- `react` 给 chat room 消息加 emoji 反应（`POST /internal_api/reactions`，body `{"unicode": <code>, "chat_room_message": <id>}`）；默认 dry-run，live 必须 `--execute --confirm REACT` 且当次授权。post 评论类反应（named like 类型，`POST /user_likes`）目前只在 dashboard 的页面动作里提供，CLI 暂不暴露。本工具只加反应、不 un-react；取消去 Circle 网页手动操作。
+- `dashboard` 起的本地服务只绑 127.0.0.1、校验 Origin；页面动作（react/mark_read）的每次点击是用户本人的一次明确授权动作，server 不自动批处理。全部动作追加审计日志（gitignored）。
 - `reset-count` 与 mark-all-read 是不同 mutation。当前没有 mark-all-read 能力（`mark-notification-read` 是单条，不是 mark-all），不得根据内部 endpoint 名字猜测或代替实现。
 - `open-browser` 只启动可见 Chrome、注入 cookie、打开一个社区页面后断开，不发任何 mutation；输出里没有 cookie 值。端口已被占用或 profile 已被锁住时拒绝启动，绝不附着到已有浏览器。目标 URL 必须是社区 host 上的 HTTPS 地址。
 - `open-notifications` 是本地只读动作：只读 fetch artifact、只调本地 URL opener，不联网、不动 Circle 状态，也不隐式标记已读。默认 dry-run，live 需要 `--execute --confirm OPEN-NOTIFICATIONS`；只打开落在 artifact `source.host` 上的 http(s) URL。
