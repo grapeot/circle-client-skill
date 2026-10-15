@@ -43,7 +43,7 @@ open data/index.html
 .venv/bin/circle-client dashboard            # 127.0.0.1:8780，自动开浏览器；Ctrl-C 停
 ```
 
-页面把未读按三个区组织：要回应的讨论（帖子评论按 post 聚合、lesson 评论按 room 聚合，线程按时间正序、新消息高亮、带上下文）、点赞（折叠成「N 人赞了《X》」行）、其他（成员/审核/live 链接）。每条新消息的动作条：反应（❤️/👍 或 comment 的 like/love/celebrate…）+ ✓已读 + 打开原页。反应成功会自动把该通知标已读（一次点击拉倒）。
+页面把未读按三个区组织：要回应的讨论（帖子评论按 post 聚合、lesson 评论按 room 聚合，线程按时间正序、新消息高亮、带上下文）、点赞（折叠成「N 人赞了《X》」行）、其他（成员/审核/live 链接）。每条新消息的动作条：反应（❤️/👍 或 comment 的 like/love/celebrate…）+ ✓已读 + 打开原页。反应成功会自动把该通知标已读（一次点击拉倒）。线程里的非未读行也能直接加反应（不标已读），浏览旧内容时不用离开页面。
 加新 emoji（chat/lesson 消息）：在 gitignored `data/emotes.json` 加 `{"名字": "unicode码"}`（如 `{"clap": "1f44f"}`），刷新页面即生效；post 评论的反应类型是 Circle 固定的六种 named 类型，不可扩展。
 
 工作机制与边界：

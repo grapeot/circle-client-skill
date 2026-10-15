@@ -215,6 +215,7 @@ Thread reply 的 POST 返回 `{creation_uuid, sent_at, parent_message_id}`——
 - 页面动作与 Circle 状态的映射：react = 反应 + 该通知 mark_as_read（「拉倒」语义）；mark_read 单条；点赞折叠组的「全部已读」由 UI 逐条循环单条请求，server 不批量。
 - 安全模型：只绑回环地址、校验 Origin、JSON Content-Type 必填；每次点击 = 用户本人的一次明确授权动作（对应「人亲手点 Publish」的本地 UI 延伸）；CLI 的 `react` 命令单独保留 dry-run-first 契约给 agent 路径。
 - Reaction 双契约并存：chat 消息用 unicode `/internal_api/reactions`；post 评论用 named 类型的 `/user_likes`。target 类型由 `VERIFIED_REACTION_KINDS` 门控，未经 live round-trip 验证的类型不显示反应按钮。
+- **反应作用域**：未读目标行（带 notification 挂钩）= 反应 + 自动 mark_as_read；线程里的任意非未读行也显示反应按钮（react-only，notification_id 为空，server 校验该行存在于当前页面上下文，不标已读）。
 - Emoji 集：内置 `reactions.REACTION_EMOTES`（chat 消息，unicode 契约）；`data/emotes.json`（gitignored，`{"名字": "unicode码"}`）可增量扩展，无效条目跳过并在 state 里带 warning，文件坏则回退内置集合。post 评论只有 Circle 固定的六种 named 类型，不受该配置影响。
 - **排序规则**：讨论区 context 按 lesson 讨论 room → 帖子评论 → 其他链接卡分层（同层内按 targets 最新 created_at 倒序，Python stable sort 两步实现）；点赞组按最新活动倒序。
 - **Room 窗口不是全集**：messages endpoint 默认只回最近的 roots（实测某 room 只有 21 条），老 thread 的新 reply 会落在窗口外；enrichment 在目标缺失时按 cursor 向后翻页（`previous_per_page=200`，上限 12 页，无新 id 即停）再扫全部已知 root 的 replies。彻底缺失的目标渲染成提示行 + 打开链接，不给任何反应/已读动作。

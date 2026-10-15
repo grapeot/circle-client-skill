@@ -384,6 +384,51 @@ def test_server_react_marks_read_and_logs(tmp_path) -> None:
     assert entry["action"] == "react" and entry["marked_read"] is True
 
 
+def test_server_react_without_notification_is_react_only(tmp_path) -> None:
+    """Rows that are not unread-notification targets (e.g. older thread
+    messages the user reads while triaging) get a reaction with no mark-read."""
+    root = {
+        "id": 9000002,
+        "chat_room_participant_id": 5,
+        "created_at": "2026-10-13T08:00:00.000Z",
+        "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "root"}]}]}, "attachments": []},
+        "replies_count": 2,
+        "reactions": [],
+    }
+    target_reply = {
+        "id": 9000006,
+        "parent_message_id": 9000002,
+        "chat_room_participant_id": 6,
+        "created_at": "2026-10-14T10:53:59.780Z",
+        "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "new homework"}]}]}, "attachments": []},
+        "replies_count": 0,
+        "reactions": [],
+    }
+    older_reply = {
+        "id": 9000007,
+        "parent_message_id": 9000002,
+        "chat_room_participant_id": 6,
+        "created_at": "2026-10-14T09:53:59.780Z",
+        "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "older note"}]}]}, "attachments": []},
+        "replies_count": 0,
+        "reactions": [],
+    }
+    client = FakeClient(
+        messages=[root],
+        replies=[target_reply, older_reply],
+        participants=[{"id": 6, "name": "Drew", "community_member_id": 88}],
+    )
+    client.fetch_notifications = lambda: _doc([_room_notification(id=50)])  # type: ignore[method-assign]
+    server = DashboardServer({}, port=8999, state_dir=tmp_path, client=client)
+    server.build_state()
+    server.react({"notification_id": None, "kind": "chat_room_message", "target_id": 9000007, "unicode": "heart"})
+    assert ("create_reaction", {"kind": "chat_room_message", "id": 9000007, "unicode": "2764-fe0f"}) in client.calls
+    assert not any(c[0] == "mark_read" for c in client.calls)
+    with pytest.raises(ActionError) as excinfo:
+        server.react({"notification_id": None, "kind": "chat_room_message", "target_id": 123456, "unicode": "heart"})
+    assert excinfo.value.status == 404
+
+
 def test_server_react_comment_kind_follows_the_gate(tmp_path) -> None:
     """Comment reactions open only once VERIFIED_REACTION_KINDS gains 'comment'
     (flipped after the live round-trip check; the default gate stays closed)."""

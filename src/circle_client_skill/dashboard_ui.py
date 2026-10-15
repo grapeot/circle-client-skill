@@ -105,11 +105,16 @@ async function act(path, body, okNote) {
   } catch (e) { fail('操作失败：' + e.message); }
   finally { spinner(false); }
 }
-function react(row, payload, glyph) {
-  const t = row.target; if (!t) return;
+function react(row, payload) {
+  const kind = row.kind === 'message' ? 'chat_room_message' : 'comment';
+  const hasNotification = !!(row.target && allIds(row).length);
   spinner(true, '反应中…');
-  act('/api/react', { notification_id: allIds(row)[0], target_id: t.id, kind: t.kind, ...payload },
-    () => { allIds(row).forEach(id => done.add(id)); render(); });
+  act('/api/react', {
+    notification_id: hasNotification ? allIds(row)[0] : null,
+    target_id: row.id,
+    kind: kind,
+    ...payload,
+  }, () => { if (hasNotification) allIds(row).forEach(id => done.add(id)); setTimeout(refresh, 2500); });
 }
 function markRead(row) {
   const ids = allIds(row); let i = 0;
@@ -161,24 +166,32 @@ function rowNode(row, ctxUrl) {
   if (row.missing) rowEl.appendChild(el('div', 'rx', '⚠︎ 消息不在最近窗口内'));
   const rxText = reactionsOf(row);
   if (rxText) rowEl.appendChild(el('div', 'rx', '已有反应：' + rxText));
-  if (row.is_target && row.target && !rowDone(row)) {
+  const kind = row.kind === 'message' ? 'chat_room_message' : 'comment';
+  const kinds = (STATE.verified_reaction_kinds || []);
+  const isDone = rowDone(row);
+  if (!row.missing && kinds.includes(kind) && !isDone) {
     const bar = el('div', 'bar');
-    const kinds = (STATE.verified_reaction_kinds || []);
-    const kind = row.target.kind;
-    if (kinds.includes(kind)) {
-      const buttons = kind === 'comment' ? (STATE.comment_reactions || []).map(r => ({ glyph: r.glyph, payload: { reaction_type: r.type } }))
-                                         : (STATE.emotes || []).map(e => ({ glyph: e.glyph, payload: { unicode: e.unicode } }));
-      buttons.forEach(b => {
-        const btn = el('button', 'act react', b.glyph);
-        btn.setAttribute('aria-label', Object.values(b.payload)[0]);
-        btn.onclick = () => react(row, b.payload, b.glyph);
-        bar.appendChild(btn);
-      });
-    }
-    const read = el('button', 'act', '✓ 已读'); read.onclick = () => markRead(row); bar.appendChild(read);
-    if (ctxUrl) { const a = el('a', '', '打开 ↗'); a.href = ctxUrl; a.target = '_blank'; a.rel = 'noopener'; bar.appendChild(a); }
+    const buttons = kind === 'comment'
+      ? (STATE.comment_reactions || []).map(r => ({ glyph: r.glyph, payload: { reaction_type: r.type } }))
+      : (STATE.emotes || []).map(e => ({ glyph: e.glyph, payload: { unicode: e.unicode } }));
+    buttons.forEach(b => {
+      const btn = el('button', 'act react', b.glyph);
+      btn.setAttribute('aria-label', Object.values(b.payload)[0]);
+      btn.onclick = () => react(row, b.payload, b.glyph);
+      bar.appendChild(btn);
+    });
     rowEl.appendChild(bar);
-  } else if (row.is_target && rowDone(row)) {
+    if (row.target && allIds(row).length) {
+      const bar2 = el('div', 'bar');
+      const read = el('button', 'act', '✓ 已读'); read.onclick = () => markRead(row); bar2.appendChild(read);
+      if (ctxUrl) { const a = el('a', '', '打开 ↗'); a.href = ctxUrl; a.target = '_blank'; a.rel = 'noopener'; bar2.appendChild(a); }
+      rowEl.appendChild(bar2);
+    } else if (ctxUrl) {
+      const bar2 = el('div', 'bar');
+      const a = el('a', '', '打开 ↗'); a.href = ctxUrl; a.target = '_blank'; a.rel = 'noopener'; bar2.appendChild(a);
+      rowEl.appendChild(bar2);
+    }
+  } else if (row.is_target && isDone) {
     rowEl.appendChild(el('div', 'rx', '✓ 处理过（刷新后从列表消失）'));
   }
   return rowEl;

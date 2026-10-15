@@ -567,6 +567,24 @@ class DashboardServer:
         self.state_path.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
         return state
 
+    def _row_target_kind(self, row: dict[str, Any]) -> str:
+        return "chat_room_message" if row.get("kind") == "message" else "comment"
+
+    def _find_row(self, kind: str, target_id: int) -> dict[str, Any] | None:
+        state = self.last_state
+        if state is None:
+            return None
+        for section in state.get("sections", []):
+            for context in section.get("contexts", []):
+                if context.get("error"):
+                    continue
+                for row in context.get("rows", []):
+                    if row.get("missing"):
+                        continue
+                    if self._row_target_kind(row) == kind and int(row.get("id") or 0) == int(target_id):
+                        return row
+        return None
+
     def _validate_target(self, notification_id: int, kind: str, target_id: int) -> None:
         state = self.last_state
         if state is None:
@@ -592,33 +610,41 @@ class DashboardServer:
         target_id = payload.get("target_id")
         unicode_code = str(payload.get("unicode") or "")
         reaction_type = str(payload.get("reaction_type") or "")
-        if not isinstance(notification_id, int) or not isinstance(target_id, int):
-            raise ActionError("notification_id / target_id 必须是整数")
         if kind not in self.verified_kinds:
             raise ActionError(f"reaction target {kind!r} 未验证，暂不开放", 409)
+        if notification_id is None:
+            if not isinstance(target_id, int):
+                raise ActionError("target_id 必须是整数")
+            with self.state_lock:
+                row = self._find_row(kind, target_id)
+            if row is None:
+                raise ActionError("该消息不在当前页面上下文里；请刷新", 404)
+        else:
+            if not isinstance(notification_id, int) or not isinstance(target_id, int):
+                raise ActionError("notification_id / target_id 必须是整数")
+            with self.state_lock:
+                self._validate_target(notification_id, kind, target_id)
         if kind == "comment":
             if reaction_type not in COMMENT_REACTION_TYPE_NAMES:
                 raise ActionError(f"不支持的 comment 反应类型 {reaction_type!r}")
-            self._validate_target(notification_id, kind, target_id)
             self.client.create_comment_like(target_id, reaction_type=reaction_type, execute=True)
         elif kind == "chat_room_message":
-            if not unicode_code:
-                raise ActionError("chat 反应需要 unicode")
             try:
                 unicode_code = resolve_unicode(unicode_code)
             except ValueError as exc:
                 raise ActionError(str(exc)) from exc
-            self._validate_target(notification_id, kind, target_id)
             self.client.create_reaction(kind, target_id, unicode_code, execute=True)
         else:
             raise ActionError(f"不支持的 reaction target {kind!r}")
-        marked_read = True
+        marked_read = False
         read_error = None
-        try:
-            self.client.mark_notification_read(notification_id, execute=True)
-        except CircleClientError as exc:
-            marked_read = False
-            read_error = str(exc)
+        if notification_id is not None:
+            marked_read = True
+            try:
+                self.client.mark_notification_read(notification_id, execute=True)
+            except CircleClientError as exc:
+                marked_read = False
+                read_error = str(exc)
         self.log_action(
             {
                 "action": "react",

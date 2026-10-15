@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-15 Reactions on every thread row
+
+- 用户澄清用法：想在线程里浏览学员作业（含旧的、非未读行）时直接给个心，不点进 Circle。
+- react API 支持无 notification_id 的 react-only 路径（server 校验该消息/评论存在于当前页面上下文，不标已读）；未读目标行保持反应 + mark_as_read。UI 给每个非 missing 行渲染反应按钮。
+- 测试：react-only 路径（create_reaction 调用、无 mark_read、未知行 404）。
+
 ### 2026-10-15 Room window misses (targets outside the default feed window)
 
 - 实测发现 lesson 讨论 room 的 messages endpoint 默认窗口只回最近 21 个 root，而 2025-02 的老 thread 仍会有 2026-10 的新 reply 未读（`#message_138871287` 老 root + 两条新 reply 都在窗口外）。此前把它们渲染成「该消息不在最近窗口内」+ 未知成员。
