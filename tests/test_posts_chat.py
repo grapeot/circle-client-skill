@@ -87,10 +87,10 @@ def test_list_spaces() -> None:
 def test_list_posts() -> None:
     session = FakeSession()
     session.set_response(
-        "GET https://community.example.com/internal_api/spaces/1420182/posts",
+        "GET https://community.example.com/internal_api/spaces/9000123/posts",
         FakeResponse({"records": [{"id": 1, "name": "Test"}], "count": 1, "has_next_page": False}),
     )
-    result = CircleClient(_settings(), session=session).list_posts(space_id=1420182, per_page=5)
+    result = CircleClient(_settings(), session=session).list_posts(space_id=9000123, per_page=5)
     assert result["count"] == 1
     assert result["records"][0]["name"] == "Test"
     assert "per_page=5" in session.calls[0]["url"]
@@ -99,27 +99,27 @@ def test_list_posts() -> None:
 def test_create_post_dry_run_not_supported_offline() -> None:
     session = FakeSession()
     session.set_response(
-        "POST https://community.example.com/internal_api/spaces/1420182/posts",
+        "POST https://community.example.com/internal_api/spaces/9000123/posts",
         FakeResponse({"id": 99, "name": "New Post", "slug": "new-post"}),
     )
     result = CircleClient(_settings(), session=session).create_post(
-        space_id=1420182, name="New Post", user_id=21622670
+        space_id=9000123, name="New Post", user_id=9000007
     )
     assert result["id"] == 99
     body = session.calls[0]["json"]
     assert body["post"]["name"] == "New Post"
-    assert body["post"]["space_id"] == 1420182
+    assert body["post"]["space_id"] == 9000123
     assert body["post"]["status"] == "published"
 
 
 def test_update_post_sends_patch() -> None:
     session = FakeSession()
     session.set_response(
-        "PATCH https://community.example.com/internal_api/spaces/1420182/posts/my-slug",
+        "PATCH https://community.example.com/internal_api/spaces/9000123/posts/my-slug",
         FakeResponse({"id": 99, "name": "Updated"}),
     )
     result = CircleClient(_settings(), session=session).update_post(
-        space_id=1420182, slug="my-slug", post_id=99, name="Updated", user_id=21622670
+        space_id=9000123, slug="my-slug", post_id=99, name="Updated", user_id=9000007
     )
     assert result["name"] == "Updated"
     assert session.calls[0]["method"] == "PATCH"
@@ -128,10 +128,10 @@ def test_update_post_sends_patch() -> None:
 def test_delete_post() -> None:
     session = FakeSession()
     session.set_response(
-        "DELETE https://community.example.com/internal_api/spaces/1420182/posts/my-slug",
+        "DELETE https://community.example.com/internal_api/spaces/9000123/posts/my-slug",
         FakeResponse(None, status_code=204, text=""),
     )
-    result = CircleClient(_settings(), session=session).delete_post(space_id=1420182, slug="my-slug")
+    result = CircleClient(_settings(), session=session).delete_post(space_id=9000123, slug="my-slug")
     assert result is None
     assert session.calls[0]["method"] == "DELETE"
 
@@ -169,7 +169,7 @@ def test_get_post_details() -> None:
         "GET https://community.example.com/internal_api/post_details",
         FakeResponse([{"id": 1, "policies": {"can_manage_post": True}}]),
     )
-    result = CircleClient(_settings(), session=session).get_post_details([1, 2], space_id=1420182)
+    result = CircleClient(_settings(), session=session).get_post_details([1, 2], space_id=9000123)
     assert len(result) == 1
     assert result[0]["policies"]["can_manage_post"] is True
     assert "post_ids=1%2C2" in session.calls[0]["url"] or "post_ids=1,2" in session.calls[0]["url"]
@@ -182,11 +182,11 @@ def test_send_chat_message() -> None:
         FakeResponse({"id": 999}, status_code=202),
     )
     result = CircleClient(_settings(), session=session).send_chat_message(
-        chat_room_uuid="abc-123", chat_room_participant_id=1133006966, text="Hello chat"
+        chat_room_uuid="abc-123", chat_room_participant_id=9000010, text="Hello chat"
     )
     assert result["id"] == 999
     body = session.calls[0]["json"]
-    assert body["chat_room_message"]["chat_room_participant_id"] == 1133006966
+    assert body["chat_room_message"]["chat_room_participant_id"] == 9000010
 
 
 def test_send_chat_thread_reply() -> None:
@@ -197,7 +197,7 @@ def test_send_chat_thread_reply() -> None:
     )
     CircleClient(_settings(), session=session).send_chat_message(
         chat_room_uuid="abc-123",
-        chat_room_participant_id=1133006966,
+        chat_room_participant_id=9000010,
         text="Thread reply",
         parent_message_id=999,
     )

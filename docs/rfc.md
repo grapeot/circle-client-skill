@@ -60,6 +60,9 @@ V1 的帖子、聊天和图片能力来自浏览器 ajax 逆向，不是官方�
 | 编辑聊天消息 | PATCH | `/internal_api/chat_rooms/{uuid}/messages/{id}` | `{"chat_room_message":{rich_text_body, attachments}}`。无 participant id | cookie+CSRF |
 | 搜索 mention | GET | `/users/mentions.json?query=&per_page=` | —。响应是 JSON 数组，不是 `/internal_api/` envelope | cookie |
 | 读取 thread 回复 | GET | `/internal_api/chat_rooms/{uuid}/messages?parent_message_id={id}` | — | cookie |
+| room 参与者 | GET | `/internal_api/chat_rooms/{uuid}/participants?page=` | —（records 含 id/name/community_member_id） | cookie |
+| 加反应（chat 消息） | POST | `/internal_api/reactions` | `{"unicode":"2764-fe0f","chat_room_message":<id>}`；响应含 `{"success","message","reaction"}`，消息记录自带 `reactions` 数组可回读 | cookie+CSRF（2026-10-15 live 验证） |
+| 评论 like/love/… | POST | `/user_likes` | `{"user_likeable_type":"Comment","user_likeable_id":<id>,"reaction_type":"like|celebrate|love|support|insightful|funny"}`；重复同 payload 在网页 UI 是 toggle 语义；comment 记录的 `reaction_summary`/`is_liked` 可回读 | cookie+CSRF（2026-10-15 live 验证） |
 
 ### 鉴权机制
 
@@ -120,6 +123,8 @@ circle-client render --input data/notifications.json --format csv
 circle-client render --input data/notifications.json --format html --output data/index.html
 circle-client open-notifications --input data/notifications.json --category lesson_comments
 circle-client open-notifications --input data/notifications.json --category lesson_comments --execute --confirm OPEN-NOTIFICATIONS
+circle-client react --message-id <id> (--emoji heart|thumb_up|star | --unicode <hex-code>) --execute --confirm REACT   # dry-run 默认
+circle-client dashboard [--port 8780] [--no-open] [--directory data]    # 127.0.0.1，人用的交互面
 circle-client serve --directory data --host 0.0.0.0 --port 8765
 
 # V1 — spaces, posts, comments, images, chat (all read ops are live, all mutations are dry-run-first)
@@ -201,3 +206,16 @@ Thread reply 的 POST 返回 `{creation_uuid, sent_at, parent_message_id}`——
 ### unreplied 判定
 
 `thread_participants_preview` 字段在 root 消息里直接含完整参与者列表，每个 participant 有 `community_member_id` 和 `name`。`community_member_id` 跨所有 room 一致（每用户一个），`chat_room_participant_id` 则每 room 不同。判定目标成员是否参与某条 root 消息的 thread：检查 `thread_participants_preview` 里有没有目标 `community_member_id`。即便 `replies_count > 0`（别人回了但目标成员没回），也算 unreplied。`--member-id` 为必填参数，不设默认值（public-ready repo 不含真实用户身份）。`scan_chat_roots` 辅助方法处理完整分页遍历：cursor anchor overlap 去重、cursor 前进检查、`max_pages` 上限和 `total_count` 一致性验证。
+
+## Dashboard V2（one-stop 交互面）
+
+完整设计见 `docs/design_dashboard.md`。要点：
+
+- `circle-client dashboard` 在 127.0.0.1:8780 起 `_DashboardHTTPServer`：`GET /` 返回单页 UI（`dashboard_ui.py` 内嵌模板，无外部资源）；`GET /api/state` 重新 fetch 未读 + 分组 + enrichment（per-context 缓存 + ThreadPool，评论走 `list_comments` 分页、lesson 讨论走 `list-chat-messages` + replies、参与者名字走 participants endpoint）；`POST /api/react` 与 `POST /api/mark_read` 是唯一两条 mutation 路径。
+- 页面动作与 Circle 状态的映射：react = 反应 + 该通知 mark_as_read（「拉倒」语义）；mark_read 单条；点赞折叠组的「全部已读」由 UI 逐条循环单条请求，server 不批量。
+- 安全模型：只绑回环地址、校验 Origin、JSON Content-Type 必填；每次点击 = 用户本人的一次明确授权动作（对应「人亲手点 Publish」的本地 UI 延伸）；CLI 的 `react` 命令单独保留 dry-run-first 契约给 agent 路径。
+- Reaction 双契约并存：chat 消息用 unicode `/internal_api/reactions`；post 评论用 named 类型的 `/user_likes`。target 类型由 `VERIFIED_REACTION_KINDS` 门控，未经 live round-trip 验证的类型不显示反应按钮。
+- Emoji 集：内置 `reactions.REACTION_EMOTES`（chat 消息，unicode 契约）；`data/emotes.json`（gitignored，`{"名字": "unicode码"}`）可增量扩展，无效条目跳过并在 state 里带 warning，文件坏则回退内置集合。post 评论只有 Circle 固定的六种 named 类型，不受该配置影响。
+- **排序规则**：讨论区 context 按 lesson 讨论 room → 帖子评论 → 其他链接卡分层（同层内按 targets 最新 created_at 倒序，Python stable sort 两步实现）；点赞组按最新活动倒序。
+- 实测预算：首刷 51 个 context ~35s（含评论分页与 participants 名字分页），缓存命中后增量刷新秒级。
+- 「全部已读」（点赞折叠组）在 UI 里做二次确认（6 秒内再点一次才执行），执行时由前端逐条调 mark_read（250ms 间隔），server 端保持"单请求单动作"。

@@ -2,6 +2,22 @@
 
 ## Changelog
 
+### 2026-10-15 Dashboard 排序与样式微调（用户反馈）
+
+- 讨论区排序改为 room → post → post_link 分层（lesson 讨论置顶，对齐旧 render 的分组顺序），同层内按最新活动倒序；stable sort 两步实现，补排序测试。
+- UI 微调：头像 chip 与用户名 flex 对齐（去掉 vertical-align hack）；页面/卡片/margin 全面放宽；「全部已读」加二次确认步（6 秒内再点一次才执行）。
+- 加新 emoji 不改代码：`data/emotes.json`（`{"名字": "unicode码"}`）增量扩展 chat 消息的快捷 emoji，无效条目跳过并在 state 带 warning；post 评论保持 Circle 固定的六种 named 类型。
+- 设计文档补实施状态注记（含与设计的差异清单）；V2 结论收编进 prd.md/rfc.md。
+
+### 2026-10-15 One-stop dashboard + reactions
+
+- 按 `docs/design_dashboard.md` 落地 V2：`dashboard` 命令（127.0.0.1:8780，自动开浏览器、`--no-open` 可关）+ `dashboard.py` / `dashboard_ui.py` + `tests/test_reactions.py` / `tests/test_dashboard.py`（全部离线）。
+- 新命令 `react`（chat 消息反应，dry-run-first + `--confirm REACT`）；client 新方法 `create_reaction`、`create_comment_like`、`list_room_participants`。
+- Reaction 双契约（都经 live round-trip 验证后开放）：chat 消息 `POST /internal_api/reactions` body `{"unicode","chat_room_message"}`（响应回显 `{"success","message","reaction"}`，消息记录的 `reactions` 数组可回读）；post 评论 `POST /user_likes` body `{"user_likeable_type":"Comment","user_likeable_id","reaction_type"}`（named 类型；comment 记录 `is_liked`/`reaction_summary.counts`/`current_user_reaction_type` 回读，counts like 5→6 实证）。验证都在账号主人自己的消息/评论上做，未触碰他人内容。
+- dashboard 页面三区：要回应的讨论（帖子评论按 post 聚合 31 个 context、lesson 讨论 21 个 room、线程时间正序 + 目标高亮）、点赞折叠组（一键已读逐条循环）、其他（FlaggedContent 不给一键已读）。真实数据首刷实测 ~35s（51 个 context 并行拉取），增量走缓存秒级；badge 用 count envelope 的 `count` 字段（client 层 `{"count", "raw"}`，raw 里才是 `new_notifications_count`）。
+- 交互语义按设计默认拍板：点 reaction = 反应 + 自动 mark_as_read；✓ 已读单独一条；回复不进 dashboard（可见浏览器原则）。
+- ruff 新增 per-file-ignores：dashboard*.py 的 RUF001（中文 UI 文案的全角标点是有意的）。
+
 ### 2026-10-13 Generic composer doc: inline images, portrait half-width, full screen, topics
 
 - 新增 `skills/references/browser_post_composer.md`：把「可见浏览器填写发帖编辑器」从回放帖文档里抽成通用流程，适用于任何空间的帖子。这次在一个项目分享空间里发图文加视频的普通帖，新摸清并写进去的：
@@ -173,3 +189,8 @@
 - `chat_room_participant_id` 是 **per-room** 的，不是账号级常量。同一个账号在不同 lesson 讨论 room 里有不同的 participant id（实测：拿另一个 room 的 id 去发，静默失败；换成本 room 的 id 才落帖）。用错 id 发 `chat-send` 时，Circle 仍返回 HTTP 202 和 `creation_uuid`，CLI 打印 "OK: sent"，但消息被静默丢弃，thread 里什么都没有——**202/creation_uuid 不能当作送达证据**。`--participant-id` 只能填目标 room 里本人的 id，从该 room 的 `GET /internal_api/chat_rooms/<uuid>/participants` 列表里按 `community_member_id` 认领自己的那一条。
 - 判断一条消息到底发出去没有，唯一可靠办法是**回读**：`list-chat-replies --room-uuid <uuid> --parent-message-id <root-id>`（或 `list-chat-messages`）里能看到新消息的 id 才算成功。只发不读、只看 CLI 的 OK，就会在失败时误报成功。
 - 对真实读者可见的发送（lesson 讨论回复、给成员回帖）要先 `open-browser` 打开目标页面：用户能当场看到发没发出去、能点进去看，同一个窗口也是回读和兜底路径。CLI 的 `chat-send` 保留给 test space 和脚本化场景，live 发送后仍必须回读核验。
+- 抓写请求要「guard 拦截 + CDP 层监听」组合：RouteGuard 只记 blocked URL 不记 body，所以要抓 payload 得另挂 `context.on("request")` 读 `request.post_data`（仍然全程 abort，零副作用）。评论 Like 的 endpoint 是 `POST /user_likes`，不在 `/internal_api/` 前缀下。
+- Playwright 无头探查时，JS `el.click()` 的事件 `isTrusted=false`，React 没反应（只出 analytics 噪音）；要用 Playwright locator 的真实点击。定位 UI 元素时 Circle 用的是 `data-testid`（不是 `testid`），评论文本锚点比猜测的 id 选择器稳。
+- 一个进程里嵌套两个 `sync_playwright()`（外面自己开一个再进 ProbeSession）会报 "Sync API inside the asyncio loop" 误报；用 ProbeSession 就别再包自己的 playwright。
+- 反应是两套系统：chat 消息走 unicode `/internal_api/reactions`，post 评论走 named 类型 `/user_likes`——同一个「红心」在不同内容上是不同 payload，不要归一成一个 endpoint。
+- `get_notification_count` 的 client 层返回是 `{"count": ..., "raw": {...}}` envelope；raw 里才有 `new_notifications_count`。dashboard 直接取 envelope 的 `count`。

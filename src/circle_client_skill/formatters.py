@@ -4,6 +4,7 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
+from .reactions import reaction_glyph
 from .rich_text import rich_text_paragraphs
 
 
@@ -420,6 +421,12 @@ def format_mutation_result(result: dict, operation: str) -> str:
         return "OK: reset notification count"
     if operation == "mark-notification-read":
         return f"OK: marked notification {result.get('notification_id', '')} as read"
+    if operation == "react":
+        glyph = reaction_glyph(result.get("unicode", ""), (result.get("reactions") or {}).get("emoji") if isinstance(result.get("reactions"), dict) else None)
+        return (
+            f"OK: reacted {glyph} on {result.get('target_kind', '')} "
+            f"{result.get('target_id', '')}"
+        )
     return f"OK: {operation}"
 
 

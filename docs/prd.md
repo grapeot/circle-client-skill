@@ -49,6 +49,16 @@ Circle 普通成员可能积累大量未读通知，但 Circle Admin API 和官�
 - 所有 mutation 默认 dry-run，live 执行需要 `--execute --confirm <ACTION>` 且用户当次明确授权。
 - 读操作和 mutation 的错误信息透传 HTTP status code 和 response body 片段，不封装成笼统的 "something went wrong"。
 
+## V2 目标：通知 one-stop dashboard
+
+- `circle-client dashboard`：127.0.0.1 本地服务 + 单页 UI，把未读按「要回应的讨论 / 点赞 / 其他」三区组织（设计文档 `docs/design_dashboard.md`）。
+- 讨论区把通知聚合成 context（帖子评论按 post、lesson 评论按 discussion room），线程内按时间正序读，目标消息高亮；评论/消息正文经 enrichment 拉取（全部只读 GET，带 per-context 缓存）。
+- 排序：讨论区按 lesson 讨论 room → 帖子评论 → 其他链接卡（同层内按最新活动倒序）；点赞区按最新活动倒序（2026-10-15 用户拍板，对齐旧 render 的分组顺序）。
+- 页面动作：emoji 反应（chat 消息 unicode 契约、post 评论 named 类型契约，均经回读验证后开放）+ 自动标已读；点赞折叠组一键已读（二次确认后逐条执行）；其他类目只给链接与单条已读（审核类不给一键清）。
+- 服务只绑 localhost，校验 Origin；页面点击即用户本人的动作；动作审计日志。CLI 增配 `react` 命令（dry-run-first）。
+
+**P0 上线标准与实测（2026-10-15）**：217 条真实 backlog 首刷 ~35s 建好 51 个 context（增量缓存后秒级）；除 FlaggedContent 外的全部通知可在页内直接读完并处理（reaction/已读），无需逐条点开 Circle 网页。**P1 遗留**：自动刷新（60s，默认关）、按 space 分组视图、更多 emoji、post 本体反应验证、un-react（取消反应）、bookmark。
+
 ## 后续目标
 
 - 把所有未读通知标记为已读。

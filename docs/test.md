@@ -11,6 +11,8 @@
 - `unreplied`：mock `scan_chat_roots` + `get_space`，验证 `thread_participants_preview` 匹配逻辑、分页遍历和 dedup。
 - Chat 分页：`--cursor`（数字 id）参数传递、`--direction` previous/next 方向切换、anchor overlap 去重。
 - Probe（`tests/test_probe.py`，Playwright 全部 mock）：guard 拦截发往 community 的非 GET、放行 GET/HEAD/OPTIONS、白名单按 method + path 精确或 glob 匹配、其他 host 不受影响；header/URL/JSON/字面值脱敏，`RequestCapture.dump` 写出的文件不含假凭证；`ProbeSession` 注入 cookie、在 context 上装 guard、禁用 service worker，并在正常退出、body 抛错、setup 失败、某个 close 抛错四种情况下都关闭 page/context/browser/Playwright。
+- Reactions（`tests/test_reactions.py`）：语义名→unicode 映射与非法值拒绝、dry-run preflight 不发请求、POST payload 与捕获契约逐字段一致、未知 target kind/非法 id/缺凭证拒绝、错误 status 透传、CLI confirm token 与 emoji/unicode 互斥、react 结果 formatter。
+- Dashboard（`tests/test_dashboard.py`）：context 分组路由（room/post/like/post_link/other）、同消息通知合并、评论链与 thread 组装（祖先链 + 回复树、时间正序）、per-context 缓存命中与超集重建、state 组装（三区、verified kinds、emote/comment 反应清单、badge envelope）、server 动作（react 分发到 chat/comment 两条契约 + mark_read + 审计日志、未验证 kind 409、目标对不上 409、不在未读集合 404）、HTTP 层（真实 ThreadingHTTPServer 在 ephemeral 端口：无 Origin 403、/ 返回 HTML、/api/state 200、动作前后状态一致）。
 
 默认测试必须完全离线，不读取 `.env`，不访问 Circle。
 
