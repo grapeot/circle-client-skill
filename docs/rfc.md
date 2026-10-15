@@ -217,5 +217,6 @@ Thread reply 的 POST 返回 `{creation_uuid, sent_at, parent_message_id}`——
 - Reaction 双契约并存：chat 消息用 unicode `/internal_api/reactions`；post 评论用 named 类型的 `/user_likes`。target 类型由 `VERIFIED_REACTION_KINDS` 门控，未经 live round-trip 验证的类型不显示反应按钮。
 - Emoji 集：内置 `reactions.REACTION_EMOTES`（chat 消息，unicode 契约）；`data/emotes.json`（gitignored，`{"名字": "unicode码"}`）可增量扩展，无效条目跳过并在 state 里带 warning，文件坏则回退内置集合。post 评论只有 Circle 固定的六种 named 类型，不受该配置影响。
 - **排序规则**：讨论区 context 按 lesson 讨论 room → 帖子评论 → 其他链接卡分层（同层内按 targets 最新 created_at 倒序，Python stable sort 两步实现）；点赞组按最新活动倒序。
+- **Room 窗口不是全集**：messages endpoint 默认只回最近的 roots（实测某 room 只有 21 条），老 thread 的新 reply 会落在窗口外；enrichment 在目标缺失时按 cursor 向后翻页（`previous_per_page=200`，上限 12 页，无新 id 即停）再扫全部已知 root 的 replies。彻底缺失的目标渲染成提示行 + 打开链接，不给任何反应/已读动作。
 - 实测预算：首刷 51 个 context ~35s（含评论分页与 participants 名字分页），缓存命中后增量刷新秒级。
 - 「全部已读」（点赞折叠组）在 UI 里做二次确认（6 秒内再点一次才执行），执行时由前端逐条调 mark_read（250ms 间隔），server 端保持"单请求单动作"。

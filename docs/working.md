@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-15 Room window misses (targets outside the default feed window)
+
+- 实测发现 lesson 讨论 room 的 messages endpoint 默认窗口只回最近 21 个 root，而 2025-02 的老 thread 仍会有 2026-10 的新 reply 未读（`#message_138871287` 老 root + 两条新 reply 都在窗口外）。此前把它们渲染成「该消息不在最近窗口内」+ 未知成员。
+- 修复：`build_room_rows` 在目标缺失时向后 cursor 翻页（`previous_per_page=200`，最多 12 页；无新 id/到底即停），随后扫描所有已知 root 的 replies 拾回目标线程。真实数据复测两个 context 全部解析、全页 0 missing。
+- missing 行 UI 只渲染提示 + 打开链接，不再渲染「未知成员」头像条（无内容时不给反应/已读按钮，避免没读内容就下手）。
+
 ### 2026-10-15 Dashboard 排序与样式微调（用户反馈）
 
 - 讨论区排序改为 room → post → post_link 分层（lesson 讨论置顶，对齐旧 render 的分组顺序），同层内按最新活动倒序；stable sort 两步实现，补排序测试。
