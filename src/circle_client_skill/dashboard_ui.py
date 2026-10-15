@@ -147,6 +147,12 @@ function reactionsOf(row) {
 
 function rowNode(row, ctxUrl) {
   const rowEl = el('div', 'row' + (row.is_target ? ' target' : '') + (rowDone(row) ? ' done' : ''));
+  if (row.missing) {
+    rowEl.appendChild(el('div', 'rtext', '⚠︎ 消息不在最近窗口内（可能在线程深处），请用「打开」去原页看'));
+    if (row.actor_name) rowEl.appendChild(el('div', 'r-meta', row.actor_name));
+    if (ctxUrl) { const a = el('a', '', '打开 ↗'); a.href = ctxUrl; a.target = '_blank'; a.rel = 'noopener'; rowEl.appendChild(el('div', 'bar')).appendChild(a); }
+    return rowEl;
+  }
   const meta = el('div', 'r-meta');
   meta.appendChild(avatar(row.actor_name));
   meta.appendChild(el('span', 'time', timefmt(row.created_at)));

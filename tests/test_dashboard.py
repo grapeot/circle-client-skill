@@ -192,6 +192,73 @@ def test_build_room_rows_includes_parents_and_thread_replies() -> None:
     assert rows[0]["text"] == "root msg"
 
 
+def test_build_room_rows_walks_backwards_for_old_threads() -> None:
+    window1 = [{
+        "id": 9000010,
+        "chat_room_participant_id": 5,
+        "created_at": "2026-10-15T11:00:00.000Z",
+        "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "recent"}]}]}, "attachments": []},
+        "replies_count": 0,
+        "reactions": [],
+    }]
+    old_root = {
+        "id": 9000000,
+        "chat_room_participant_id": 5,
+        "created_at": "2025-02-21T04:03:13.860Z",
+        "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "old thread root"}]}]}, "attachments": []},
+        "replies_count": 2,
+        "reactions": [],
+    }
+    replies = [
+        {"id": 9000006, "parent_message_id": 9000000, "chat_room_participant_id": 6, "created_at": "2026-10-14T10:53:59.780Z", "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "target A"}]}]}, "attachments": []}, "replies_count": 0, "reactions": []},
+        {"id": 9000007, "parent_message_id": 9000000, "chat_room_participant_id": 6, "created_at": "2026-10-14T11:05:23.727Z", "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "target B"}]}]}, "attachments": []}, "replies_count": 0, "reactions": []},
+    ]
+    participant = [{"id": 6, "name": "Drew", "community_member_id": 88}]
+    feeds = {"first": {"records": window1}, "older": {"records": [old_root]}}
+
+    class PagingClient(FakeClient):
+        def __init__(self) -> None:
+            super().__init__(replies=replies, participants=participant)
+
+        def list_chat_messages(self, chat_room_uuid: str, **kwargs: Any) -> dict[str, Any]:
+            self.calls.append(("list_chat_messages", {"room": chat_room_uuid, **kwargs}))
+            return feeds["older"] if kwargs.get("cursor") is not None else feeds["first"]
+
+    client = PagingClient()
+    rows = build_room_rows(client, LESSON_ROOM, {9000006, 9000007})
+    cursor_calls = [c for c in client.calls if c[1].get("cursor") is not None]
+    assert len(cursor_calls) == 2  # one productive page + one no-progress probe that stops the walk
+    assert rows[0]["text"] == "old thread root"
+    texts = [r["text"] for r in rows]
+    assert texts == ["old thread root", "target A", "target B"]  # unrelated window roots are not rendered
+    assert not any(row.get("missing") for row in rows)
+
+
+def test_build_room_rows_backward_walk_is_bounded() -> None:
+    class EndlessClient(FakeClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.next_id = 9000099
+
+        def list_chat_messages(self, chat_room_uuid: str, **kwargs: Any) -> dict[str, Any]:
+            self.calls.append(("list_chat_messages", {"room": chat_room_uuid, **kwargs}))
+            self.next_id -= 1
+            return {"records": [{
+                "id": self.next_id,
+                "chat_room_participant_id": 5,
+                "created_at": "2026-10-15T11:00:00.000Z",
+                "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "recent"}]}]}, "attachments": []},
+                "replies_count": 0,
+                "reactions": [],
+            }]}
+
+    client = EndlessClient()
+    rows = build_room_rows(client, LESSON_ROOM, {999999999})
+    message_calls = [c for c in client.calls if c[0] == "list_chat_messages"]
+    assert len(message_calls) == 1 + 12  # initial page + bounded walk ceiling
+    assert any(row.get("missing") for row in rows)
+
+
 def test_cache_skips_builder_on_hit() -> None:
     cache = DashboardCache()
     calls = {"n": 0}

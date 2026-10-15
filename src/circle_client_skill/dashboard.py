@@ -37,6 +37,8 @@ MAX_COMMENT_PAGES = 5
 COMMENTS_PER_PAGE = 50
 MAX_PARTICIPANT_PAGES = 15
 MAX_ROOTS_WINDOW = 50
+MAX_BACKWARD_PAGES = 12
+BACKWARD_PER_PAGE = 200
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 
@@ -150,9 +152,23 @@ def build_room_rows(client: CircleClient, room_uuid: str, target_ids: set[int]) 
 
     missing_before_fetch = any(target_id not in pool for target_id in target_ids)
     if missing_before_fetch:
-        # A target lives inside a thread outside the root window (thread reply).
-        # Scan threads of every root that has replies (lesson rooms return all
-        # roots, so this costs one GET per reply-bearing root).
+        # The default feed window is bounded: a thread root older than it can
+        # still carry fresh replies (targets). Walk backwards via cursor until
+        # every target is in the pool or progress stops (anchor repeats at the
+        # bottom); then fetch replies of every known root that has them.
+        for _step in range(MAX_BACKWARD_PAGES):
+            if all(target_id in pool for target_id in target_ids):
+                break
+            oldest = min(pool, default=None)
+            if oldest is None:
+                break
+            older = client.list_chat_messages(room_uuid, previous_per_page=BACKWARD_PER_PAGE, cursor=oldest)
+            older_records = [m for m in (older.get("records") or []) if m.get("id") is not None]
+            fresh = [m for m in older_records if int(m["id"]) not in pool]
+            if not fresh:
+                break
+            for message in fresh:
+                pool.setdefault(int(message["id"]), message)
         fetch_replies([root_id for root_id, root in pool.items() if root.get("replies_count")])
     else:
         needed: set[int] = set()
