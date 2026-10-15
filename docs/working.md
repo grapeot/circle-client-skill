@@ -2,6 +2,14 @@
 
 ## Changelog
 
+### 2026-10-15 Rows slimmed to target threads + anchor-directed thread jump
+
+- 用户反馈：只 care 未读评论，room 卡片不该把整个默认窗口（一两天内所有 root）都铺上，评论也不该把没用的分页拉完。
+- room rows 收窄到「只渲染目标所在的 thread」：含目标线程的 root + 全部 replies 才进卡片，无关 root 不再渲染；评论分页加 `chains_resolved()` 提前停（全部目标与其祖先链都解析即停，不再机械翻满 5 页）。
+- 老 thread 命中走通知自带的锚点直达：`action_web_url` 的 `#message_<root>` 就是 thread 根 id——对不在窗口的目标直接 `fetch_chat_replies(root)`（一次请求、不需要 root 记录），去掉常见的全量向后扫描；backward walk 降级为无锚点时的最后手段（有界 12 页，每页 200 roots，捡回即解析+扫 replies）。
+- 缩进加强：按 depth 缩进 36px/层 + reply 行左侧 rail 线（`.row.reply` 边框）。
+- 两个收尾修复：①`_enrich_context` 的目标 annotation（actor/target/notification_ids）之前只写在被丢弃的拷贝里，卡片行拿不到——已在 annotated 列表上回填（这也意味着此前 UI 的行内反应走的是 react-only 路径、从未挂 mark-read；修复后未读目标行的反应恢复「反应+已读」语义）；②reply 行的父 root 记录不在 pool 时 depth 仍为 1（parent_id 恒定已知）；③reply_to 二遍扫描：父行若是未读 target，借用通知解析出的名字（实测 Andy Lee 的「同感同感」正确显示 ↩ Huang Shengxin）。
+
 ### 2026-10-15 Thread organization for room rows and comments
 
 - 用户示例：lesson 讨论里「同感同感」其实是一条对别人 root 的 reply，但平铺渲染看不出来。

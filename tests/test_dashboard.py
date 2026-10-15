@@ -230,13 +230,12 @@ def test_build_room_rows_walks_backwards_for_old_threads() -> None:
     client = PagingClient()
     rows = build_room_rows(client, LESSON_ROOM, {9000006, 9000007})
     cursor_calls = [c for c in client.calls if c[1].get("cursor") is not None]
-    assert len(cursor_calls) == 2  # one productive page + one no-progress probe that stops the walk
+    assert len(cursor_calls) == 1  # the walk stops as soon as the walk page resolved the targets
     assert rows[0]["text"] == "old thread root"
     texts = [r["text"] for r in rows]
-    assert texts == ["old thread root", "target A", "target B", "recent"]
+    assert texts == ["old thread root", "target A", "target B"]  # unrelated window roots stay hidden
     assert rows[0]["depth"] == 0
     assert rows[1]["depth"] == 1 and rows[1]["reply_to"] == "Hank"
-    assert rows[3]["depth"] == 0 and "hidden_replies" not in rows[3]
     assert not any(row.get("missing") for row in rows)
 
 
@@ -290,7 +289,7 @@ def test_build_room_rows_groups_threads_over_chronology() -> None:
         participants=[{"id": 5, "name": "Hank", "community_member_id": 89}],
     )
     rows = build_room_rows(client, LESSON_ROOM, {9000012})
-    assert [row["text"] for row in rows] == ["root A", "late reply to A", "root B"]
+    assert [row["text"] for row in rows] == ["root A", "late reply to A"]  # unrelated roots stay hidden
     assert rows[1]["reply_to"] == "Hank" and rows[1]["depth"] == 1
 
 

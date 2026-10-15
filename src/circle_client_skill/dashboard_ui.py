@@ -36,6 +36,7 @@ article.ctx { background:#fff; border:1px solid var(--line); border-radius: 12px
 .row { padding: 10px 12px; border-radius: 10px; background: #fbfcfd; border: 1px solid transparent; }
 .row.target { background: #f4fbf6; border-color: #d1ead9; padding-left: 14px; }
 .row.done { opacity: .5; }
+.row.reply { border-left: 3px solid #b7dcc5; }
 .r-meta { display: flex; gap: 8px; align-items: center; }
 .who { font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
 .chip { display: inline-flex; width: 22px; height: 22px; border-radius: 11px; background: #dfe5ec; color: #4b5563; font-size: 12px; font-weight: 600; align-items: center; justify-content: center; flex: none; }
@@ -163,9 +164,9 @@ function reactionsOf(row) {
 }
 
 function rowNode(row, ctxUrl) {
-  const indent = Math.min(row.depth || 0, 4) * 18;
-  const rowEl = el('div', 'row' + (row.is_target ? ' target' : '') + (rowDone(row) ? ' done' : ''));
-  rowEl.style.marginLeft = indent + 'px';
+  const depth = Math.min(row.depth || 0, 4);
+  const rowEl = el('div', 'row' + (depth ? ' reply' : '') + (row.is_target ? ' target' : '') + (rowDone(row) ? ' done' : ''));
+  rowEl.style.marginLeft = (depth * 36) + 'px';
   if (row.missing) {
     rowEl.appendChild(el('div', 'rtext', '⚠︎ 消息不在最近窗口内（可能在线程深处），请用「打开」去原页看'));
     if (row.actor_name) rowEl.appendChild(el('div', 'r-meta', row.actor_name));

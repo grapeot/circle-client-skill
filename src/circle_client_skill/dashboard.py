@@ -130,23 +130,29 @@ def room_participants_map(client: CircleClient, room_uuid: str) -> dict[int, str
     return names
 
 
-def build_room_rows(client: CircleClient, room_uuid: str, target_ids: set[int]) -> list[dict[str, Any]]:
-    """Rows of a chat room thread context, chronological, targets included.
+def build_room_rows(
+    client: CircleClient,
+    room_uuid: str,
+    target_ids: set[int],
+    anchors: dict[int, int | None] | None = None,
+) -> list[dict[str, Any]]:
+    """Rows of a chat room: only the target (unread message) threads.
 
-    Lesson-room comments are chat messages; their room feed returns all roots
-    (the server ignores per-page there). Thread replies around targets come
-    from the replies endpoint so the target is shown in conversation context.
+    The user reads unread comments, not the room feed. Notification web URLs
+    carry the thread-root anchor (``#message_<root>``), which lets us jump
+    straight to a thread whose root sits outside the default window.
     """
+    anchors = anchors or {}
     result = client.list_chat_messages(room_uuid, previous_per_page=MAX_ROOTS_WINDOW)
     window_records = [m for m in (result.get("records") or []) if m.get("id") is not None]
-    window_ids = {int(m["id"]) for m in window_records}
-    window_roots = {mid for mid in window_ids if window_records and next(m for m in window_records if int(m["id"]) == mid).get("parent_message_id") is None}
     pool: dict[int, dict[str, Any]] = {int(m["id"]): m for m in window_records}
     threads: dict[int, list[dict[str, Any]]] = {}
 
     def fetch_replies(parent_ids: list[int]) -> None:
         for parent_id in parent_ids:
-            if parent_id in threads or parent_id not in pool or not pool[parent_id].get("replies_count"):
+            if parent_id in threads:
+                continue
+            if parent_id in pool and not pool[parent_id].get("replies_count"):
                 continue
             reply_page = client.fetch_chat_replies(room_uuid, parent_id)
             fetched = [m for m in (reply_page.get("records") or []) if m.get("id") is not None]
@@ -154,15 +160,47 @@ def build_room_rows(client: CircleClient, room_uuid: str, target_ids: set[int]) 
             for reply in fetched:
                 pool.setdefault(int(reply["id"]), reply)
 
-    missing_before_fetch = any(target_id not in pool for target_id in target_ids)
-    if missing_before_fetch:
-        # The default feed window is bounded: a thread root older than it can
-        # still carry fresh replies (targets). Walk backwards via cursor until
-        # every target is in the pool or progress stops (anchor repeats at the
-        # bottom); then fetch replies of every known root that has them.
+    included: set[int] = set()
+
+    def include_target_thread(root_id: int) -> None:
+        fetch_replies([root_id])
+        included.update({root_id, *(int(m["id"]) for m in threads.get(root_id, []))})
+
+    def resolve_if_present(target_id: int) -> bool:
+        message = pool.get(target_id)
+        if message is None:
+            return False
+        parent_id = message.get("parent_message_id")
+        include_target_thread(int(parent_id) if parent_id is not None else target_id)
+        return True
+
+    unresolved = [tid for tid in target_ids if not resolve_if_present(tid)]
+
+    still: list[int] = []
+    for target_id in unresolved:
+        anchor = anchors.get(target_id)
+        if anchor is not None and anchor != target_id:
+            fetch_replies([anchor])
+            if target_id in pool:
+                include_target_thread(anchor)
+            else:
+                still.append(target_id)
+        else:
+            still.append(target_id)
+
+    if still:
+        # Last resort without an anchor: scan every known reply-bearing root,
+        # then walk backwards bounded if the target is still unfound.
+        roots_to_scan = [root_id for root_id, root in pool.items() if root.get("replies_count") and root_id not in threads]
+        if roots_to_scan:
+            fetch_replies(roots_to_scan)
+        resolved = set()
+        for target_id in list(still):
+            if resolve_if_present(target_id):
+                resolved.add(target_id)
+        still = [t for t in still if t not in resolved]
+    if still:
         for _step in range(MAX_BACKWARD_PAGES):
-            if all(target_id in pool for target_id in target_ids):
-                break
             oldest = min(pool, default=None)
             if oldest is None:
                 break
@@ -173,36 +211,16 @@ def build_room_rows(client: CircleClient, room_uuid: str, target_ids: set[int]) 
                 break
             for message in fresh:
                 pool.setdefault(int(message["id"]), message)
-        fetch_replies([root_id for root_id, root in pool.items() if root.get("replies_count")])
-    else:
-        needed: set[int] = set()
-        for target_id in target_ids:
-            message = pool.get(target_id)
-            if message is None:
-                continue
-            parent_id = message.get("parent_message_id")
-            needed.add(int(parent_id) if parent_id is not None else target_id)
-        fetch_replies([parent_id for parent_id in needed if parent_id in pool])
-    for replies in threads.values():
-        for reply in replies:
-            if reply.get("id") is not None:
-                pool[int(reply["id"])] = reply
-    included: set[int] = set()
-    for target_id in target_ids:
-        message = pool.get(target_id)
-        if message is None:
-            continue
-        included.add(target_id)
-        parent_id = message.get("parent_message_id")
-        if parent_id is not None:
-            parent_id = int(parent_id)
-            included.update({parent_id, *(int(m["id"]) for m in threads.get(parent_id, []))})
-        elif message.get("replies_count"):
-            included.update(int(m["id"]) for m in threads.get(target_id, []))
-    missing_targets = [tid for tid in target_ids if tid not in pool and tid not in included]
-    # The room reads as a feed: keep every root of the default window visible
-    # (with a hint when its replies were not fetched), not just target threads.
-    included |= window_roots
+            fetch_replies([int(message["id"]) for message in fresh if message.get("replies_count")])
+            resolved = set()
+            for target_id in list(still):
+                if resolve_if_present(target_id):
+                    resolved.add(target_id)
+            still = [t for t in still if t not in resolved]
+            if not still:
+                break
+
+    missing_targets = still
     try:
         names = room_participants_map(client, room_uuid)
     except CircleClientError:
@@ -233,15 +251,19 @@ def build_room_rows(client: CircleClient, room_uuid: str, target_ids: set[int]) 
             reactions=_reactions_summary(message),
         )
         parent_id = message.get("parent_message_id")
+        row["parent_id"] = int(parent_id) if parent_id is not None else None
         parent = pool.get(int(parent_id)) if parent_id is not None else None
         if parent is not None:
             parent_participant = parent.get("chat_room_participant_id")
             parent_actor = names.get(int(parent_participant)) if parent_participant is not None else None
-            row["parent_id"] = int(parent_id)
             row["reply_to"] = parent_actor
             row["depth"] = 1
+        elif parent_id is not None:
+            # The root record is outside the pool (kept as a marker row); the
+            # reply still reads as a reply through depth + indent.
+            row["reply_to"] = None
+            row["depth"] = 1
         else:
-            row["parent_id"] = None
             row["reply_to"] = None
             row["depth"] = 0
         if row.get("parent_id") is None and message.get("replies_count") and message_id not in threads:
@@ -263,8 +285,25 @@ def build_room_rows(client: CircleClient, room_uuid: str, target_ids: set[int]) 
 
 
 def build_comment_rows(client: CircleClient, post_id: int, target_ids: set[int]) -> list[dict[str, Any]]:
-    """Rows of a post's comment thread, chronological, target chains included."""
+    """Rows of a post's comment thread, root-time order, target chains only."""
     comments: dict[int, dict[str, Any]] = {}
+
+    def chains_resolved() -> bool:
+        if not all(tid in comments for tid in target_ids):
+            return False
+        for target_id in target_ids:
+            cursor = comments.get(target_id)
+            for _ in range(8):
+                if cursor is None:
+                    break
+                parent_id = cursor.get("parent_comment_id")
+                if parent_id is None:
+                    break
+                if int(parent_id) not in comments:
+                    return False
+                cursor = comments[int(parent_id)]
+        return True
+
     for page in range(1, MAX_COMMENT_PAGES + 1):
         result = client.list_comments(post_id, page=page, per_page=COMMENTS_PER_PAGE)
         records = result.get("records") or []
@@ -272,6 +311,8 @@ def build_comment_rows(client: CircleClient, post_id: int, target_ids: set[int])
             if comment.get("id") is not None:
                 comments[int(comment["id"])] = comment
         if not result.get("has_next_page") or not records:
+            break
+        if chains_resolved():
             break
     children: dict[int | None, list[dict[str, Any]]] = {}
     for comment in comments.values():
@@ -399,11 +440,17 @@ def _enrich_context(
         try:
             if kind == "room":
                 room_uuid = key[1]
+                anchors: dict[int, int | None] = {}
+                for notification in notifications:
+                    notifiable_id = notification.get("notifiable_id")
+                    match = re.search(r"#message_(\d+)", notification.get("action_web_url") or "")
+                    if notifiable_id is not None:
+                        anchors[int(notifiable_id)] = int(match.group(1)) if match else None
                 rows = cache.rows_for(
                     client,
                     ("room", room_uuid),
                     target_ids,
-                    lambda cl, k, t: build_room_rows(cl, room_uuid, t),
+                    lambda cl, k, t: build_room_rows(cl, room_uuid, t, anchors),
                 )
             else:
                 rows = cache.rows_for(
@@ -416,7 +463,8 @@ def _enrich_context(
             context["error"] = str(exc)
             rows = []
         merged = {target: notes[0] for target, notes in targets.items()}
-        target_rows = []
+        target_rows: list[dict[str, Any]] = []
+        annotated: list[dict[str, Any]] = []
         for row in rows:
             row = dict(row)
             row["is_target"] = row["id"] in set(target_ids)
@@ -433,7 +481,17 @@ def _enrich_context(
                     row["action"] = notification.get("display_action")
                 row["notification_ids"] = [n.get("id") for n in targets.get(row["id"], [])]
                 target_rows.append(row)
-        context["rows"] = rows
+            annotated.append(row)
+        # Second pass: a reply's reply_to borrows the parent row's resolved name
+        # (from participants pages or from the notification, whichever hit).
+        by_id = {row["id"]: row for row in annotated}
+        for row in annotated:
+            parent_id = row.get("parent_id")
+            if parent_id is not None and not row.get("reply_to"):
+                parent_row = by_id.get(parent_id)
+                if parent_row is not None and parent_row.get("actor_name"):
+                    row["reply_to"] = parent_row["actor_name"]
+        context["rows"] = annotated
         context["targets"] = target_rows
     else:
         context["rows"] = []
