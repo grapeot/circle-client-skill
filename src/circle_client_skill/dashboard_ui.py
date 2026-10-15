@@ -92,7 +92,13 @@ document.addEventListener('keydown', e => { if ((e.metaKey||e.ctrlKey) && e.key 
 function timefmt(iso) { if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return iso; return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
 function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
 function initials(name) { const c = (name || '?').trim(); return c ? c[0].toUpperCase() : '?'; }
-function avatar(name) { const wrap = el('span', 'who'); const chip = el('span', 'chip'); chip.textContent = initials(name); wrap.appendChild(chip); wrap.appendChild(document.createTextNode(name || '（未知成员）')); return wrap; }
+function avatar(name) {
+  const wrap = el('span', 'who');
+  const chip = el('span', 'chip'); chip.textContent = initials(name);
+  wrap.appendChild(chip);
+  if (name) wrap.appendChild(document.createTextNode(name));
+  return wrap;
+}
 function allIds(row) { return row.notification_ids || []; }
 function rowDone(row) { const ids = allIds(row); return ids.length > 0 && ids.every(id => done.has(id)); }
 function glyphOf(unicode) { const e = (STATE.emotes || []).find(x => x.unicode === unicode); return (e && e.glyph) || '🙂'; }
@@ -157,7 +163,9 @@ function reactionsOf(row) {
 }
 
 function rowNode(row, ctxUrl) {
+  const indent = Math.min(row.depth || 0, 4) * 18;
   const rowEl = el('div', 'row' + (row.is_target ? ' target' : '') + (rowDone(row) ? ' done' : ''));
+  rowEl.style.marginLeft = indent + 'px';
   if (row.missing) {
     rowEl.appendChild(el('div', 'rtext', '⚠︎ 消息不在最近窗口内（可能在线程深处），请用「打开」去原页看'));
     if (row.actor_name) rowEl.appendChild(el('div', 'r-meta', row.actor_name));
@@ -166,12 +174,14 @@ function rowNode(row, ctxUrl) {
   }
   const meta = el('div', 'r-meta');
   meta.appendChild(avatar(row.actor_name));
+  if (row.reply_to) meta.appendChild(el('span', 'time', `↩ 回复 ${row.reply_to}`));
   meta.appendChild(el('span', 'time', timefmt(row.created_at)));
   rowEl.appendChild(meta);
   if (row.text !== undefined && row.text !== null && row.text !== '') rowEl.appendChild(el('div', 'rtext', row.text));
   if (row.missing) rowEl.appendChild(el('div', 'rx', '⚠︎ 消息不在最近窗口内'));
   const rxText = reactionsOf(row);
   if (rxText) rowEl.appendChild(el('div', 'rx', '已有反应：' + rxText));
+  if (row.hidden_replies) rowEl.appendChild(el('div', 'rx', `＋${row.hidden_replies} 条回复未展示`));
   const kind = row.kind === 'message' ? 'chat_room_message' : 'comment';
   const kinds = (STATE.verified_reaction_kinds || []);
   const isDone = rowDone(row);

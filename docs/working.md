@@ -2,6 +2,14 @@
 
 ## Changelog
 
+### 2026-10-15 Thread organization for room rows and comments
+
+- 用户示例：lesson 讨论里「同感同感」其实是一条对别人 root 的 reply，但平铺渲染看不出来。
+- rows 组装改为 thread 组织：每行带 `parent_id` / `reply_to` / `depth`；room 行按「thread root 时间」排序、root 先于其 replies（单层 thread，回复缩进在 root 下），帖子评论按 root 时间序做完整 DFS（支持更深嵌套），missing 行垫底。
+- room 现在读作 feed：默认窗口里的全部 root 都渲染（保序），只有含目标/含 fetched replies 的 thread 展开；bare root 带 `hidden_replies` 计数提示（UI 显示「＋N 条回复未展示」）。
+- 作者名边界实测：课程 room 的 participants 列表覆盖全体成员（2400+ 人、per_page 钉死 100、SPA 也是懒加载）；`thread_participants_preview` 只带 mention 对象、没有作者。**名字按 best effort**：participants 前 3 页 + 通知自带 actor_name；取不到就只渲染 "?" chip（含缩进与 ↩ 结构表达回复关系，不阻塞可读性）。
+- 一次性探查脚本：`data/probe_rxn/discover_names.py`（课程页 participants 观察，结论 = 无按消息作者的便宜 endpoint）。
+
 ### 2026-10-15 Reaction confirmation from real state (no optimistic painting)
 
 - 用户反馈：点完红心要在页面上看到真实的 ❤️×1，不接受本地画假状态（"不希望这是个 UI UX trick"）。

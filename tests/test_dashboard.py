@@ -151,6 +151,8 @@ def test_build_comment_rows_includes_chain_and_replies() -> None:
     assert [row["id"] for row in rows] == [9, 1, 2, 3]
     assert rows[-1]["text"] == "the target"
     assert rows[0]["text"] == "hi"
+    assert rows[-1]["depth"] == 2 and rows[-1]["reply_to"] == "Member2"
+    assert rows[1]["depth"] == 0
     assert rows[-1]["reactions"][0]["unicode"] == "2764-fe0f"
 
 
@@ -182,11 +184,12 @@ def test_build_room_rows_includes_parents_and_thread_replies() -> None:
     client = FakeClient(
         messages=[root],
         replies=[reply],
-        participants=[{"id": 2, "name": "Bob", "community_member_id": 42}],
+        participants=[{"id": 2, "name": "Bob", "community_member_id": 42}, {"id": 1, "name": "Amy", "community_member_id": 41}],
     )
     rows = build_room_rows(client, LESSON_ROOM, {101})
     assert [row["id"] for row in rows] == [100, 101]
     assert rows[-1]["actor_name"] == "Bob"
+    assert rows[-1]["reply_to"] == "Amy" and rows[-1]["depth"] == 1
     assert "@Bob" in rows[-1]["text"]
     assert rows[-1]["reactions"][0] == {"unicode": "2764-fe0f", "emoji": "heart", "count": 1}
     assert rows[0]["text"] == "root msg"
@@ -213,7 +216,7 @@ def test_build_room_rows_walks_backwards_for_old_threads() -> None:
         {"id": 9000006, "parent_message_id": 9000000, "chat_room_participant_id": 6, "created_at": "2026-10-14T10:53:59.780Z", "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "target A"}]}]}, "attachments": []}, "replies_count": 0, "reactions": []},
         {"id": 9000007, "parent_message_id": 9000000, "chat_room_participant_id": 6, "created_at": "2026-10-14T11:05:23.727Z", "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "target B"}]}]}, "attachments": []}, "replies_count": 0, "reactions": []},
     ]
-    participant = [{"id": 6, "name": "Drew", "community_member_id": 88}]
+    participant = [{"id": 6, "name": "Drew", "community_member_id": 88}, {"id": 5, "name": "Hank", "community_member_id": 89}]
     feeds = {"first": {"records": window1}, "older": {"records": [old_root]}}
 
     class PagingClient(FakeClient):
@@ -230,7 +233,10 @@ def test_build_room_rows_walks_backwards_for_old_threads() -> None:
     assert len(cursor_calls) == 2  # one productive page + one no-progress probe that stops the walk
     assert rows[0]["text"] == "old thread root"
     texts = [r["text"] for r in rows]
-    assert texts == ["old thread root", "target A", "target B"]  # unrelated window roots are not rendered
+    assert texts == ["old thread root", "target A", "target B", "recent"]
+    assert rows[0]["depth"] == 0
+    assert rows[1]["depth"] == 1 and rows[1]["reply_to"] == "Hank"
+    assert rows[3]["depth"] == 0 and "hidden_replies" not in rows[3]
     assert not any(row.get("missing") for row in rows)
 
 
@@ -257,6 +263,35 @@ def test_build_room_rows_backward_walk_is_bounded() -> None:
     message_calls = [c for c in client.calls if c[0] == "list_chat_messages"]
     assert len(message_calls) == 1 + 12  # initial page + bounded walk ceiling
     assert any(row.get("missing") for row in rows)
+
+
+def test_build_room_rows_groups_threads_over_chronology() -> None:
+    root_a = {
+        "id": 9000010,
+        "chat_room_participant_id": 5,
+        "created_at": "2026-10-14T08:00:00.000Z",
+        "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "root A"}]}]}, "attachments": []},
+        "replies_count": 1,
+        "reactions": [],
+    }
+    root_b = dict(root_a, id=9000011, created_at="2026-10-14T09:00:00.000Z", rich_text_body={"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "root B"}]}]}, "attachments": []}, replies_count=0)
+    late_reply = {
+        "id": 9000012,
+        "parent_message_id": 9000010,
+        "chat_room_participant_id": 6,
+        "created_at": "2026-10-14T19:00:00.000Z",
+        "rich_text_body": {"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "late reply to A"}]}]}, "attachments": []},
+        "replies_count": 0,
+        "reactions": [],
+    }
+    client = FakeClient(
+        messages=[root_a, root_b],
+        replies=[late_reply],
+        participants=[{"id": 5, "name": "Hank", "community_member_id": 89}],
+    )
+    rows = build_room_rows(client, LESSON_ROOM, {9000012})
+    assert [row["text"] for row in rows] == ["root A", "late reply to A", "root B"]
+    assert rows[1]["reply_to"] == "Hank" and rows[1]["depth"] == 1
 
 
 def test_cache_skips_builder_on_hit() -> None:

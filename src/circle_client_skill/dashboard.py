@@ -35,7 +35,10 @@ VERIFIED_REACTION_KINDS: tuple[str, ...] = ("chat_room_message", "comment")
 
 MAX_COMMENT_PAGES = 5
 COMMENTS_PER_PAGE = 50
-MAX_PARTICIPANT_PAGES = 15
+# Course-room participant lists cover the whole membership (thousands, always
+# paginated); a few pages give partial names cheaply, and rows still render
+# with thread structure when a name is unknown.
+MAX_PARTICIPANT_PAGES = 3
 MAX_ROOTS_WINDOW = 50
 MAX_BACKWARD_PAGES = 12
 BACKWARD_PER_PAGE = 200
@@ -135,9 +138,10 @@ def build_room_rows(client: CircleClient, room_uuid: str, target_ids: set[int]) 
     from the replies endpoint so the target is shown in conversation context.
     """
     result = client.list_chat_messages(room_uuid, previous_per_page=MAX_ROOTS_WINDOW)
-    pool: dict[int, dict[str, Any]] = {
-        int(m["id"]): m for m in (result.get("records") or []) if m.get("id") is not None
-    }
+    window_records = [m for m in (result.get("records") or []) if m.get("id") is not None]
+    window_ids = {int(m["id"]) for m in window_records}
+    window_roots = {mid for mid in window_ids if window_records and next(m for m in window_records if int(m["id"]) == mid).get("parent_message_id") is None}
+    pool: dict[int, dict[str, Any]] = {int(m["id"]): m for m in window_records}
     threads: dict[int, list[dict[str, Any]]] = {}
 
     def fetch_replies(parent_ids: list[int]) -> None:
@@ -196,6 +200,9 @@ def build_room_rows(client: CircleClient, room_uuid: str, target_ids: set[int]) 
         elif message.get("replies_count"):
             included.update(int(m["id"]) for m in threads.get(target_id, []))
     missing_targets = [tid for tid in target_ids if tid not in pool and tid not in included]
+    # The room reads as a feed: keep every root of the default window visible
+    # (with a hint when its replies were not fetched), not just target threads.
+    included |= window_roots
     try:
         names = room_participants_map(client, room_uuid)
     except CircleClientError:
@@ -217,17 +224,41 @@ def build_room_rows(client: CircleClient, room_uuid: str, target_ids: set[int]) 
             )
             continue
         participant_id = message.get("chat_room_participant_id")
-        rows.append(
-            _base_row(
-                message_id,
-                kind="message",
-                actor=names.get(int(participant_id)) if participant_id is not None else None,
-                created_at=message.get("created_at"),
-                text=rich_text_message_text(message),
-                reactions=_reactions_summary(message),
-            )
+        row = _base_row(
+            message_id,
+            kind="message",
+            actor=names.get(int(participant_id)) if participant_id is not None else None,
+            created_at=message.get("created_at"),
+            text=rich_text_message_text(message),
+            reactions=_reactions_summary(message),
         )
-    rows.sort(key=lambda row: (row.get("created_at") or "", str(row.get("id"))))
+        parent_id = message.get("parent_message_id")
+        parent = pool.get(int(parent_id)) if parent_id is not None else None
+        if parent is not None:
+            parent_participant = parent.get("chat_room_participant_id")
+            parent_actor = names.get(int(parent_participant)) if parent_participant is not None else None
+            row["parent_id"] = int(parent_id)
+            row["reply_to"] = parent_actor
+            row["depth"] = 1
+        else:
+            row["parent_id"] = None
+            row["reply_to"] = None
+            row["depth"] = 0
+        if row.get("parent_id") is None and message.get("replies_count") and message_id not in threads:
+            row["hidden_replies"] = int(message["replies_count"])
+        rows.append(row)
+
+    def _order(row: dict[str, Any]) -> tuple[str, int, str, str]:
+        if row.get("missing"):
+            return ("\uffff", 2, "", str(row.get("id") or ""))  # always last
+        parent_id = row.get("parent_id")
+        if parent_id is None:
+            return (row.get("created_at") or "", 0, "", str(row.get("id") or ""))
+        root = pool.get(int(parent_id))
+        root_time = (root or {}).get("created_at") or row.get("created_at") or ""
+        return (root_time, 1, row.get("created_at") or "", str(row.get("id") or ""))
+
+    rows.sort(key=_order)
     return rows
 
 
@@ -264,24 +295,54 @@ def build_comment_rows(client: CircleClient, post_id: int, target_ids: set[int])
                 if child.get("id") is not None and int(child["id"]) not in included:
                     included.add(int(child["id"]))
                 stack.append(child)
+    def _emit(comment_id: int, out: list[int]) -> None:
+        out.append(comment_id)
+        for child in children.get(comment_id, []):
+            if child.get("id") is not None and int(child["id"]) in included:
+                _emit(int(child["id"]), out)
+
+    ordered: list[int] = []
+    tops = [
+        comment
+        for comment in (comments.get(cid) for cid in included)
+        if comment is not None
+        and (comment.get("parent_comment_id") is None or int(comment.get("parent_comment_id")) not in included)
+    ]
+    tops.sort(key=lambda c: (c.get("created_at") or "", c.get("id") or 0))
+    for top in tops:
+        _emit(int(top["id"]), ordered)
+    ordered += [comment_id for comment_id in included if comment_id not in ordered]
     rows = []
-    for comment_id in included:
+    for comment_id in ordered:
         comment = comments.get(comment_id)
         if comment is None:
             continue
         member = comment.get("community_member")
         actor = member.get("name") if isinstance(member, dict) else None
-        rows.append(
-            _base_row(
-                comment_id,
-                kind="comment",
-                actor=str(actor) if actor else None,
-                created_at=comment.get("created_at"),
-                text=_body_text(comment),
-                reactions=_reactions_summary(comment),
-            )
+        parent_id = comment.get("parent_comment_id")
+        parent = comments.get(parent_id) if parent_id is not None else None
+        parent_member = parent.get("community_member") if isinstance(parent, dict) else None
+        reply_to = parent_member.get("name") if isinstance(parent_member, dict) else None
+        depth = 0
+        cursor: dict[str, Any] | None = comment
+        while cursor is not None:
+            pid = cursor.get("parent_comment_id")
+            if pid is None or int(pid) not in comments or depth > 8:
+                break
+            depth += 1
+            cursor = comments[int(pid)]
+        row = _base_row(
+            comment_id,
+            kind="comment",
+            actor=str(actor) if actor else None,
+            created_at=comment.get("created_at"),
+            text=_body_text(comment),
+            reactions=_reactions_summary(comment),
         )
-    rows.sort(key=lambda row: (row.get("created_at") or "", str(row.get("id"))))
+        row["parent_id"] = parent_id
+        row["reply_to"] = str(reply_to) if reply_to else None
+        row["depth"] = depth
+        rows.append(row)
     return rows
 
 
