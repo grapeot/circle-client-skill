@@ -1,10 +1,12 @@
-"""Read-only example probe: open a page, screenshot it, dump visible form controls.
+"""Read-only example probe: open a visible window, screenshot it, dump visible form controls.
 
     python -m circle_client_skill.probe --path /c/some-space --out data/probe --tag space
 
-There is no allowlist flag: this script never lets a non-GET request reach the
-community. Outputs (screenshot, controls, redacted request log) go under `--out`,
-which should stay inside the gitignored `data/` directory.
+Uses ProbeSession's visible default (headless=False). There is no --headless flag;
+pass ProbeSession(headless=True) only when the user explicitly asks for headless
+or the environment has no GUI. There is no allowlist flag: this script never lets
+a non-GET request reach the community. Outputs (screenshot, controls, redacted
+request log) go under `--out`, which should stay inside the gitignored `data/` directory.
 """
 
 from __future__ import annotations

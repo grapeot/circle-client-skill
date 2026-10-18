@@ -301,7 +301,7 @@ def test_session_injects_cookies_installs_guard_and_closes(tmp_path: Path) -> No
     env = write_env(tmp_path / ".env")
     with ProbeSession(env_path=env, playwright_factory=lambda: fake) as probe:
         ctx = fake.context
-        assert fake.launch_kwargs == {"headless": True}
+        assert fake.launch_kwargs == {"headless": False}
         assert ctx.kwargs["service_workers"] == "block"
         assert ctx.kwargs["user_agent"] == "Test Browser"
         assert {c["name"] for c in ctx.cookies} == {"session_id", "csrf_token", "theme"}
@@ -314,6 +314,16 @@ def test_session_injects_cookies_installs_guard_and_closes(tmp_path: Path) -> No
         assert "fake-session-value-123" not in repr(probe)
     assert fake.log == ["page.close", "context.close", "browser.close", "playwright.stop"]
     assert probe.page is None and probe.browser is None
+
+
+def test_session_headless_true_is_opt_in(tmp_path: Path) -> None:
+    fake = FakePlaywright()
+    with ProbeSession(
+        env_path=write_env(tmp_path / ".env"),
+        headless=True,
+        playwright_factory=lambda: fake,
+    ):
+        assert fake.launch_kwargs == {"headless": True}
 
 
 def test_session_closes_when_body_raises(tmp_path: Path) -> None:

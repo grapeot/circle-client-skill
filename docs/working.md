@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-18 Visible browser is the probe default
+
+- `ProbeSession` 默认 `headless=False`，打开人类可见窗口。`headless=True` 只在调用方显式传入时生效，skill 约定仅用于用户明确要求 headless 或环境没有 GUI。
+- `python -m circle_client_skill.probe` 没有写死 headless，也没有 `--headless` 开关，跟随 `ProbeSession` 的可见默认。
+- root skill、README、events 参考改为同一原则：浏览器观察和交互默认 `open-browser` + CDP 的可见 Chrome，不把 headless 当常规路径。
+
 ### 2026-10-15 Rows slimmed to target threads + anchor-directed thread jump
 
 - 用户反馈：只 care 未读评论，room 卡片不该把整个默认窗口（一两天内所有 root）都铺上，评论也不该把没用的分页拉完。
