@@ -15,6 +15,8 @@ description: >-
 
 把当前登录成员在 Circle 网页中可见的未读通知完整抓取到本地 artifact，并渲染成适合阅读或 AI 后处理的 Markdown/CSV/HTML。已读通知不进入 artifact。当前稳定能力严格只读。
 
+**浏览器默认可见。** 浏览器驱动的观察和交互默认走人类可见的 Chrome：用 `open-browser` 打开窗口，再连接它输出的 CDP。不要启动 headless，除非用户明确要求，或当前环境没有 GUI。
+
 ## 何时使用
 
 - 用户要看、导出、汇总或筛选自己的 Circle notifications。
@@ -297,12 +299,14 @@ CLI 没有 `create-event` / `publish-event` 一类命令，也不要为单次需
 
 完整的字段、tab、通知默认值、副作用和 endpoint 见 [`references/events.md`](references/events.md)。
 
-## Probe 工具（headless 观察）
+## Probe 工具（默认可见窗口）
 
 CLI 没覆盖的页面（活动表单、新面板）先用 probe 工具看，不要猜 endpoint。`circle_client_skill.probe` 只做四件事：观察、截图、抓请求、回读状态。需要 `browser` extra（`uv pip install -e '.[browser]'` + `python -m playwright install chromium`）。
 
+`ProbeSession` 必须默认使用可见窗口（`headless=False`）。`headless=True` 只是 opt-in：用户明确要求 headless，或当前环境没有 GUI 时才传。`python -m circle_client_skill.probe` 不带 headless 参数，走同一个可见默认。
+
 ```bash
-# 只读示例：打开页面、截图、导出可见表单控件和脱敏后的 internal_api 请求日志
+# 只读示例：打开可见窗口、截图、导出可见表单控件和脱敏后的 internal_api 请求日志
 .venv/bin/python -m circle_client_skill.probe --path /c/example-space --out data/probe --tag example
 ```
 
@@ -310,14 +314,14 @@ CLI 没覆盖的页面（活动表单、新面板）先用 probe 工具看，不
 from pathlib import Path
 from circle_client_skill.probe import ProbeSession
 
-with ProbeSession(env_path=Path(".env")) as probe:   # 默认 allow=()，纯观察
+with ProbeSession(env_path=Path(".env"), headless=False) as probe:   # 默认就是可见窗口；headless=True 仅在用户明确要求或无 GUI 时使用
     probe.page.goto(probe.url("/c/example-space"), wait_until="domcontentloaded")
     probe.screenshot(Path("data/probe/example.png"))
 probe.capture.dump(Path("data/probe"), "example")      # 写盘前已脱敏
 print(probe.guard.blocked)                             # 被拦下的写请求（已去 query）
 ```
 
-- `ProbeSession` 从现有 `.env` 读 cookie 注入 headless Chromium，不打印凭证；page/context/browser/Playwright 在 `finally` 里逐个关闭，一步失败不影响后面几步。service worker 被禁用，避免绕过路由拦截。
+- `ProbeSession` 从现有 `.env` 读 cookie 注入 Chromium，默认 `headless=False`（可见窗口）。不打印凭证；page/context/browser/Playwright 在 `finally` 里逐个关闭，一步失败不影响后面几步。service worker 被禁用，避免绕过路由拦截。
 - `RouteGuard` 装在整个 browser context 上：发往 community host 的非 GET/HEAD/OPTIONS 请求一律 abort 并记进 `guard.blocked`；其他 host（CDN、分析、S3 直传）不管。默认放行列表为空。注意打开页面本身就会触发写请求（`reset_unread_count`、analytics、Cloudflare beacon 等），在 `blocked` 里看到它们是正常的。
 - `RequestCapture` 只记 `/internal_api/` 的 XHR/fetch。`dump()` 写盘前做两层脱敏：Cookie/Authorization/CSRF 等字段名、URL 里的签名参数，以及 `.env` 里实际的 cookie/CSRF/JWT 值，无论出现在哪里都替换成 `[REDACTED]`。响应正文里仍可能有成员姓名等私人数据，所以输出只放 gitignored 的 `data/`。
 - **放宽白名单**：只有当人已经授权一次具体的浏览器写操作时，才给 `ProbeSession(allow=...)` 传规则，而且只放那一个 endpoint，例如 `allow=("POST /internal_api/spaces/1111/events",)`。规则格式是 `"[METHOD] /path"`，path 按 fnmatch 匹配、忽略 query，`*` 可跨 `/`；不写 method 表示任意非 GET 方法。不要放 `/internal_api/*` 这种大范围规则。上传封面这类连带请求要逐个列出（例如 `"POST /internal_api/direct_uploads"`）。

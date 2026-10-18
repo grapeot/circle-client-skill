@@ -1,4 +1,7 @@
-"""Headless Chromium session logged in with the cookies from the local credential store.
+"""Chromium session logged in with the cookies from the local credential store.
+
+Launches a human-visible window by default (`headless=False`). Pass `headless=True`
+only when the caller explicitly requests headless, or the environment has no GUI.
 
 Usage::
 
@@ -78,7 +81,7 @@ class ProbeSession:
         env_path: Path = Path(".env"),
         *,
         allow: Iterable[str | AllowRule] = (),
-        headless: bool = True,
+        headless: bool = False,
         viewport: tuple[int, int] = (1440, 1000),
         locale: str | None = None,
         save_bodies: bool = False,

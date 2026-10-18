@@ -1,4 +1,4 @@
-"""Route guard for headless probes: observe by default, write only what is allowlisted.
+"""Route guard for probes: observe by default, write only what is allowlisted.
 
 The guard aborts every non-safe request (anything other than GET/HEAD/OPTIONS) that
 targets the configured community host, unless the caller explicitly allowlists that

@@ -76,7 +76,7 @@ Circle 活动的创建流程、字段、通知默认值和观察到的 endpoint 
 
 ## Probe 工具
 
-`circle_client_skill.probe` 是观察页面用的 headless 工具（需要 `browser` extra）：把 `.env` 里的 cookie 注入 headless Chromium，装一个 route guard 拦下所有发往社区的非 GET 请求（默认不放行任何写请求），并把 internal API 请求脱敏后写到 gitignored 的 `data/`。
+`circle_client_skill.probe` 是观察页面用的工具（需要 `browser` extra）：默认启动可见浏览器，把 `.env` 里的 cookie 注入 Chromium；headless 是 opt-in，只在调用方显式传入 `headless=True` 时使用。它装一个 route guard 拦下所有发往社区的非 GET 请求（默认不放行任何写请求），并把 internal API 请求脱敏后写到 gitignored 的 `data/`。
 
 ```bash
 python -m circle_client_skill.probe --path /c/example-space --out data/probe --tag example

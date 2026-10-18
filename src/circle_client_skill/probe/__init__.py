@@ -1,4 +1,4 @@
-"""Headless probe tooling: observe Circle pages, screenshot, capture, read back.
+"""Probe tooling: observe Circle pages in a visible browser by default, screenshot, capture, read back.
 
 These helpers are for probing only. Event writes (create, edit, publish) go through
 the browser UI per `skills/references/events.md`; the guard blocks every non-GET

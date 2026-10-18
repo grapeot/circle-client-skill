@@ -34,6 +34,7 @@ packages = ["src/circle_client_skill"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = ["live: opt-in tests against a logged-in Circle community"]
 
 [tool.ruff]

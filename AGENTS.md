@@ -10,7 +10,7 @@
 - `src/circle_client_skill/reactions.py`：reaction 契约常量（chat unicode 集、comment named 类型、glyph 映射）。
 - `src/circle_client_skill/dashboard.py` / `dashboard_ui.py`：one-stop 通知 dashboard（分组/enrichment/缓存纯逻辑 + 127.0.0.1 本地服务 + 单页 UI）。
 - `src/circle_client_skill/subtitles.py`：录像双语字幕的离线工具（WebVTT 解析、按剪辑映射时间轴、按比例切分、双语组装、校验），不联网。
-- `src/circle_client_skill/probe/`：headless 观察工具（cookie 注入 session、route guard、脱敏抓包），Playwright 是 optional extra，测试全部 mock。
+- `src/circle_client_skill/probe/`：可见窗口观察工具（默认 `headless=False`；cookie 注入 session、route guard、脱敏抓包），Playwright 是 optional extra，测试全部 mock。`headless=True` 仅在用户明确要求或无 GUI 时 opt-in。
 - `skills/circle_client.md`：唯一 canonical root skill。
 - `docs/`：PRD、RFC、测试策略和持续工作记录。
 - `tests/`：默认完全离线；live test 必须显式启用。
