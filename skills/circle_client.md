@@ -7,6 +7,8 @@ description: >-
   asks to see, review, visualize, export, or summarize their Circle notifications.
   Also routes post writes (new post, edit post, event recording posts): those go through
   a human-visible browser where the agent fills the composer and a human clicks Publish.
+  Paywall creation, trial extension, and billing-date changes are not CLI commands;
+  route them to references/paywall_subscriptions.md.
 ---
 
 # Circle Client Skill
@@ -23,6 +25,7 @@ description: >-
 - 用户没有或不想使用 Admin API、Headless API、Circle MCP。
 - 用户提供了浏览器 notification request 的 Copy as cURL，或已把它放进剪贴板。
 - 用户要发帖、改帖，或把一场活动整理成回放帖：走下文「写帖子：可见浏览器」，不走 CLI。
+- 用户要建测试 paywall、延长 trial 或改 billing date：没有对应 CLI。走「Paywall 与个人 trial 改期」。
 
 ## 看通知 / 通知可视化（首要工作流）
 
@@ -298,6 +301,10 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 CLI 没有 `create-event` / `publish-event` 一类命令，也不要为单次需求临时写一个。几个最容易踩的事实：Save 只建草稿（`status` 写死 `"draft"`）；发布邮件、确认邮件、提醒邮件的开关只在草稿编辑页里，默认全开；发布邮件只在 Publish 那一刻发，之后无法重发；secret test space 里有非 admin 成员时，Publish 一样会发通知；表单时间按成员资料时区解释。
 
 完整的字段、tab、通知默认值、副作用和 endpoint 见 [`references/events.md`](references/events.md)。
+
+## Paywall 与个人 trial 改期
+
+本仓库没有 `paywall-*` 或 billing 命令。成员 cookie 和 CSRF 也不是 Admin API token。隔离测试 paywall、正常 checkout、延长 genuine trial、取消后归档，走人类可见浏览器，可选再调用官方 Admin API v2。已验证和仅文档的分界、以及不能照抄的请求模板，见 [`references/paywall_subscriptions.md`](references/paywall_subscriptions.md)。这份手册不授权新的 live 写操作；每次写入仍要当次明确授权。
 
 ## Probe 工具（默认可见窗口）
 

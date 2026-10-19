@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### 2026-10-19 Paywall trial reschedule playbook
+
+- 新增 `skills/references/paywall_subscriptions.md`。这是可见浏览器加官方 Admin API v2 的操作手册，不是新 CLI，也不执行 live 写操作。
+- 一次自有 genuine trial 上已验证：GUI Extend trial、`extend_trial`、`ends_at: now` 取消、归档后 paywall `inactive`。只保证选中的 calendar day，不保证秒级增量。
+- `change_billing_date`、付费后退款并保留订阅、`at_period_end`、checkout 在绑卡前展示个人首扣日、到期非零扣款，均未由这次实验验证。
+- root skill 和 README 只加路由。`/paywalls/{id}` 在公开 spec 里是 DELETE，读回走 search，不能当成 GET。
+
 ### 2026-10-18 Visible browser is the probe default
 
 - `ProbeSession` 默认 `headless=False`，打开人类可见窗口。`headless=True` 只在调用方显式传入时生效，skill 约定仅用于用户明确要求 headless 或环境没有 GUI。
