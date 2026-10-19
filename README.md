@@ -66,6 +66,10 @@ circle-client mark-notification-read 9000001
 
 Circle 活动的创建流程、字段、通知默认值和观察到的 endpoint 记录在 `skills/references/events.md`。本工具不提供活动写命令：创建、编辑和发布活动都在浏览器 UI 里完成，Publish 由人亲手点；本仓库里与活动相关的脚本只用于观察和回读。
 
+## Paywall 与 trial 改期
+
+没有 paywall 或 billing CLI。建隔离测试 paywall、正常 checkout、延长 genuine trial、取消并归档，走可见浏览器和可选的官方 Admin API。手册在 `skills/references/paywall_subscriptions.md`。成员 session 不能代替 Admin token；`change_billing_date`、退款留订阅和到期扣款不在已验证范围内。
+
 ## 课程 lesson
 
 把一份教材搬进 Circle 课程：`course-sections` 读出含 Draft 的课程结构，`create-section` / `rename-section` / `create-lesson` 走会员会话的内部接口建 Draft，`fill-lesson` 按 lesson 清单（JSON：标题加 HTML 片段和媒体文件）在可见浏览器的 lesson 编辑器里重建正文、保存并回读，`lesson-featured-video` 和 `lesson-media-settings` 处理视频 lesson 的 featured 视频、字幕、章节和封面。写命令默认 dry-run，浏览器命令只改 Draft lesson，Publish 由人点。流程和清单格式见 `skills/references/course_lessons.md`。
