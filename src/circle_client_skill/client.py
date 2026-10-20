@@ -218,6 +218,107 @@ class CircleClient:
         except requests.JSONDecodeError as exc:
             raise CircleClientError("Circle returned a non-JSON response") from exc
 
+    # ---- Post moderation (admin browser session) ----
+
+    def get_flagged_content(self, flagged_content_id: int) -> dict[str, Any]:
+        """Read one moderation record, including a pending post's body."""
+        if type(flagged_content_id) is not int or flagged_content_id <= 0:
+            raise ValueError("flagged_content_id must be a positive integer")
+        return self._request(
+            "GET", f"{self.settings.base_url}/internal_api/flagged_contents/{flagged_content_id}"
+        )
+
+    def moderate_post(
+        self,
+        flagged_content_id: int,
+        *,
+        action: str,
+        expected_post_id: int,
+        expected_space_id: int,
+        note: str | None = None,
+        execute: bool = False,
+    ) -> dict[str, Any]:
+        """Approve/reject a verified Post record; never retry the mutation blindly.
+
+        Dry runs are entirely offline. Live calls verify the target before writing
+        and read it back afterwards. A same-action repeat skips the PATCH; an
+        opposite-action result is a conflict, not permission to reverse moderation.
+        """
+        if action not in ("approve", "reject"):
+            raise ValueError("action must be approve or reject")
+        for name, value in (
+            ("flagged_content_id", flagged_content_id),
+            ("expected_post_id", expected_post_id),
+            ("expected_space_id", expected_space_id),
+        ):
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        if note is not None and not isinstance(note, str):
+            raise ValueError("note must be text or None")
+        if action == "approve" and note is not None:
+            raise ValueError("note is only supported for reject")
+        desired = "approved" if action == "approve" else "rejected"
+        url = f"{self.settings.base_url}/internal_api/flagged_contents/{flagged_content_id}/{action}"
+        body = {} if action == "approve" else {"action_reason_body": note}
+        plan = {
+            "operation": f"{action}-post", "flagged_content_id": flagged_content_id,
+            "post_id": expected_post_id, "space_id": expected_space_id,
+            "method": "PATCH", "url": url, "body": body,
+        }
+        if not execute:
+            return {"success": True, "dry_run": True, **plan}
+        if not self.settings.csrf_token or not self.settings.cookie:
+            raise CircleClientError("Live moderation requires cookie and CSRF credentials")
+
+        def validate(record: dict[str, Any]) -> dict[str, Any]:
+            post = record.get("flagged_contentable")
+            if (
+                record.get("id") != flagged_content_id
+                or not isinstance(post, dict)
+                or post.get("type") != "Post"
+                or post.get("id") != expected_post_id
+                or post.get("space_id") != expected_space_id
+            ):
+                raise CircleClientError("Moderation target does not match expected Post and space")
+            if "status" not in record or not {"flagged_for_approval_at", "removed_at"}.issubset(post):
+                raise CircleClientError("Moderation record is incomplete; cannot verify state")
+            return post
+
+        def completed(record: dict[str, Any]) -> bool:
+            post = validate(record)
+            if record.get("status") != desired:
+                return False
+            if action == "approve":
+                return post.get("flagged_for_approval_at") is None and post.get("removed_at") is None
+            return bool(post.get("removed_at"))
+
+        before = self.get_flagged_content(flagged_content_id)
+        post = validate(before)
+        if completed(before):
+            return {"success": True, "dry_run": False, "verified": True,
+                    "already_moderated": True, "status": desired, **plan}
+        if before.get("status") is not None or not post.get("flagged_for_approval_at") or post.get("removed_at") is not None:
+            raise CircleClientError("Moderation record is not pending; no action performed")
+
+        # A timeout/HTTP error may happen after the server committed. Read back,
+        # never issue a second PATCH just because the first response was uncertain.
+        mutation_error = None
+        try:
+            result = self._request("PATCH", url, json_body=body, mutation=True)
+            if not isinstance(result, dict) or result.get("success") is not True:
+                mutation_error = CircleClientError("Moderation was not acknowledged")
+        except CircleClientError as exc:
+            mutation_error = exc
+        try:
+            after = self.get_flagged_content(flagged_content_id)
+        except CircleClientError as exc:
+            raise CircleClientError("Moderation outcome unknown; read back before retrying") from exc
+        if not completed(after):
+            raise CircleClientError("Moderation readback did not confirm the requested state") from mutation_error
+        return {"success": True, "dry_run": False, "verified": True,
+                "already_moderated": False, "reconciled": mutation_error is not None,
+                "status": desired, **plan}
+
     # ---- Spaces ----
 
     def list_spaces(self) -> dict[str, Any]:

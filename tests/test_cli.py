@@ -8,6 +8,22 @@ import pytest
 from circle_client_skill import cli
 
 
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_moderation_cli_requires_explicit_confirmation_before_loading_credentials(action, monkeypatch):
+    parser = cli.build_parser()
+    args = parser.parse_args([f"{action}-post", "11", "--post-id", "22", "--space-id", "33", "--execute"])
+    monkeypatch.setattr(cli, "load_settings", lambda _: pytest.fail("credentials must not load"))
+    with pytest.raises(ValueError, match=f"--confirm {action.upper()}-POST"):
+        args.handler(args)
+
+
+def test_moderation_parser_preserves_offline_default_and_reject_note():
+    parser = cli.build_parser()
+    args = parser.parse_args(["reject-post", "11", "--post-id", "22", "--space-id", "33", "--note", "Synthetic test"])
+    assert args.execute is False
+    assert args.note == "Synthetic test"
+
+
 def test_unreplied_resolves_space_filters_member_and_limits(monkeypatch, capsys) -> None:
     roots = [
         {
@@ -338,4 +354,3 @@ def test_open_notifications_execute_empty_is_error(tmp_path, monkeypatch) -> Non
     args = _open_args(tmp_path, category="comments", execute=True, confirm="OPEN-NOTIFICATIONS")
     with pytest.raises(ValueError):
         cli.cmd_open_notifications(args)
-
