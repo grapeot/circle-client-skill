@@ -302,6 +302,10 @@ CLI 没有 `create-event` / `publish-event` 一类命令，也不要为单次需
 
 完整的字段、tab、通知默认值、副作用和 endpoint 见 [`references/events.md`](references/events.md)。
 
+## Post moderation（管理员会话）
+
+`get-flagged-content` 只读待审正文；`approve-post` / `reject-post` 默认离线 dry-run，live 需明确授权、`--execute` 与匹配的 `--confirm APPROVE-POST` / `REJECT-POST`。必须提供预期 `--post-id` 和 `--space-id`，仅支持 Post。先 GET 核对目标，再 PATCH，最后回读 approved/rejected；同动作顺序重复只读后跳过，不保证并发 exactly-once。完整参数与失败恢复见 [`references/post_moderation.md`](references/post_moderation.md)。
+
 ## Paywall 与个人 trial 改期
 
 本仓库没有 `paywall-*` 或 billing 命令。成员 cookie 和 CSRF 也不是 Admin API token。隔离测试 paywall、正常 checkout、延长 genuine trial、取消后归档，走人类可见浏览器，可选再调用官方 Admin API v2。已验证和仅文档的分界、以及不能照抄的请求模板，见 [`references/paywall_subscriptions.md`](references/paywall_subscriptions.md)。这份手册不授权新的 live 写操作；每次写入仍要当次明确授权。

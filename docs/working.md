@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-20 Verified Post moderation
+
+- Added `get-flagged-content`, offline-default `approve-post` and `reject-post`, with explicit CLI confirmation and expected Post/space identifiers.
+- Live calls verify the target, execute one PATCH and verify the resulting moderation state. Same-action serial repeats skip the mutation; uncertain responses trigger readback instead of blind PATCH retries. No cross-process lock or platform exactly-once guarantee.
+- Captured web contracts and controlled tests informed the adapter; only synthetic fixtures enter this repository. Offline tests cover wrong targets, opposite states, retained reject pending timestamps, uncertain writes, and failed readback. Ruff and the full offline suite passed.
+
 ### 2026-10-19 Paywall trial reschedule playbook
 
 - 新增 `skills/references/paywall_subscriptions.md`。这是可见浏览器加官方 Admin API v2 的操作手册，不是新 CLI，也不执行 live 写操作。

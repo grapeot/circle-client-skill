@@ -391,6 +391,30 @@ def cmd_mark_notification_read(args: argparse.Namespace) -> None:
         print(format_mutation_result(result, "mark-notification-read"))
 
 
+def cmd_get_flagged_content(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    result = CircleClient(settings, timeout=args.timeout).get_flagged_content(args.flagged_content_id)
+    _print_json(result)
+
+
+def cmd_moderate_post(args: argparse.Namespace) -> None:
+    confirmation = f"{args.moderation_action.upper()}-POST"
+    if args.execute and args.confirm != confirmation:
+        raise ValueError(f"Live execution requires --confirm {confirmation}")
+    settings = load_settings(Path(args.env_file))
+    result = CircleClient(settings, timeout=args.timeout).moderate_post(
+        args.flagged_content_id, action=args.moderation_action,
+        expected_post_id=args.post_id, expected_space_id=args.space_id,
+        note=getattr(args, "note", None), execute=args.execute,
+    )
+    if args.json:
+        _print_json(result)
+    elif result.get("dry_run"):
+        print(format_mutation_dryrun(result))
+    else:
+        print(f"OK: post #{args.post_id} {result['status']} (readback verified)")
+
+
 def cmd_react(args: argparse.Namespace) -> None:
     if args.execute and args.confirm != "REACT":
         raise ValueError("Live execution requires --confirm REACT")
@@ -1286,6 +1310,27 @@ def build_parser() -> argparse.ArgumentParser:
     mark_notification_read.add_argument("--confirm")
     mark_notification_read.add_argument("--timeout", type=float, default=30)
     mark_notification_read.set_defaults(handler=cmd_mark_notification_read)
+
+    flagged_content = subparsers.add_parser(
+        "get-flagged-content", help="Read one moderation record and its pending post body"
+    )
+    flagged_content.add_argument("flagged_content_id", type=int)
+    flagged_content.add_argument("--timeout", type=float, default=30)
+    flagged_content.set_defaults(handler=cmd_get_flagged_content)
+
+    for action in ("approve", "reject"):
+        moderation = subparsers.add_parser(
+            f"{action}-post", help=f"{action.title()} a flagged Post; offline dry-run by default"
+        )
+        moderation.add_argument("flagged_content_id", type=int)
+        moderation.add_argument("--post-id", type=int, required=True)
+        moderation.add_argument("--space-id", type=int, required=True)
+        if action == "reject":
+            moderation.add_argument("--note")
+        moderation.add_argument("--execute", action="store_true")
+        moderation.add_argument("--confirm")
+        moderation.add_argument("--timeout", type=float, default=30)
+        moderation.set_defaults(handler=cmd_moderate_post, moderation_action=action)
 
     react = subparsers.add_parser(
         "react",

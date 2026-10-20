@@ -96,4 +96,6 @@ python -m circle_client_skill.probe --path /c/example-space --out data/probe --t
 
 ## 稳定性说明
 
+Post moderation uses an admin browser session: `get-flagged-content` reads pending content, while `approve-post` / `reject-post` default to an offline dry-run and require explicit live confirmation. See [the moderation reference](skills/references/post_moderation.md) for target validation, state readback, and concurrency limits.
+
 本工具调用 Circle 网页使用的 internal API，而不是 Circle 官方公开 API。Circle 可能调整 endpoint、字段或认证方式；浏览器 cookies 和 Cloudflare clearance 也会过期。认证失效时，重新运行 `configure-browser` 即可。
