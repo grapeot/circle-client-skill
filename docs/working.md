@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### 2026-10-21 Retired the static render/serve workflow (0.2.0)
+
+- CLI contract 变化：移除 `render`（md/csv/html）与 `serve` 两个命令，`dashboard` 成为通知可视化的唯一交互面；「看通知」首要工作流从 `fetch → render → open index.html` 翻转为 `dashboard`。
+- `render.py` 删除；被 `opener.py`（open-notifications 分类）依赖的 `normalize_notification` / `category_for_notification` 移入新模块 `src/circle_client_skill/normalize.py`，行为不变，测试迁到 `tests/test_normalize.py`。
+- 全 workspace 无 render 产物下游消费者；fetch 的 JSON artifact 仍是规范存储，`open-notifications` / `react` 不受影响。
+- 文档同步：public skill 首要工作流与命令参考、私有 overlay 默认工作流、rfc 命令列表与输出哲学、design_dashboard 状态注记、README 版本变更、项目 AGENTS.md 定位段。
+
 ### 2026-10-21 Lesson media settings wait for a processing video
 
 - 一次真实课程发布：featured 视频（约 100 MB、17:50）上传到 100% 后立刻跑 `lesson-media-settings`，章节循环报 `seek failed: button says 'Add at 00:10', wanted 03:49`。日志里已打印封面和字幕步骤，但 Save 在函数末尾，什么都没存；约 3 分钟后整步重跑成功。判断是 Circle 还在处理视频，预览只能 seek 到已处理的部分。
@@ -12,7 +19,7 @@
 
 - Added `get-flagged-content`, offline-default `approve-post` and `reject-post`, with explicit CLI confirmation and expected Post/space identifiers.
 - Live calls verify the target, execute one PATCH and verify the resulting moderation state. Same-action serial repeats skip the mutation; uncertain responses trigger readback instead of blind PATCH retries. No cross-process lock or platform exactly-once guarantee.
-- Captured web contracts and controlled tests informed the adapter; only synthetic fixtures enter this repository. Offline tests cover wrong targets, opposite states, retained reject pending timestamps, uncertain writes, and failed readback. Ruff and the full offline suite passed.
+ - Captured web contracts and controlled tests informed the adapter; only synthetic fixtures enter this repository. Offline tests cover wrong targets, opposite states, retained reject pending timestamps, uncertain writes, and failed readback. Ruff and the full offline suite passed.
 
 ### 2026-10-19 Paywall trial reschedule playbook
 

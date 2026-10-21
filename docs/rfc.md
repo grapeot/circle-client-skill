@@ -118,14 +118,10 @@ circle-client count
 circle-client reset-count
 circle-client reset-count --execute --confirm RESET-COUNT
 circle-client fetch --group inbox --per-page 100 --output data/notifications.json
-circle-client render --input data/notifications.json --format md
-circle-client render --input data/notifications.json --format csv
-circle-client render --input data/notifications.json --format html --output data/index.html
 circle-client open-notifications --input data/notifications.json --category lesson_comments
 circle-client open-notifications --input data/notifications.json --category lesson_comments --execute --confirm OPEN-NOTIFICATIONS
 circle-client react --message-id <id> (--emoji heart|thumb_up|star | --unicode <hex-code>) --execute --confirm REACT   # dry-run 默认
 circle-client dashboard [--port 8780] [--no-open] [--directory data]    # 127.0.0.1，人用的交互面
-circle-client serve --directory data --host 0.0.0.0 --port 8765
 
 # V1 — spaces, posts, comments, images, chat (all read ops are live, all mutations are dry-run-first)
 circle-client spaces
@@ -151,7 +147,7 @@ circle-client <command> [...] --json   # output complete raw JSON instead of com
 
 `--json` 是全局 flag，挂在主 parser 上、所有子命令继承。它输出**完整原始 API 响应**，不做字段裁剪，供下游 pipeline 无损消费。默认模式和 JSON 模式职责清晰分离：前者精简，后者完整。
 
-具体格式由 `formatters.py` 承载，每种命令一个格式器。列表类输出为对齐表格（非 Markdown，避免 `|` 管道符噪声），单条详情为 key-value 卡片，mutation dry-run 为结构化 preflight 块，mutation live 为一行确认，错误为人类可读单行 + status/request_id。`get-post` 默认从 tiptap body 提取纯文本，`--raw-body` 保留原始 tiptap JSON 块。`render` 和 `serve` 不受影响——它们是"保存到文件供后续用"的工具，不是即时输出。
+具体格式由 `formatters.py` 承载，每种命令一个格式器。列表类输出为对齐表格（非 Markdown，避免 `|` 管道符噪声），单条详情为 key-value 卡片，mutation dry-run 为结构化 preflight 块，mutation live 为一行确认，错误为人类可读单行 + status/request_id。`get-post` 默认从 tiptap body 提取纯文本，`--raw-body` 保留原始 tiptap JSON 块。通知可视化统一走 `dashboard`；静态 `render` 与 `serve` 命令已于 0.2.0 移除（fetch 的 JSON artifact 仍是规范存储）。
 
 ## 本地批量打开通知
 

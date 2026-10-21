@@ -9,8 +9,6 @@ import subprocess
 import sys
 import webbrowser
 from datetime import UTC, datetime
-from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -60,7 +58,6 @@ from .formatters import (
 )
 from .opener import CATEGORIES, default_opener, open_sequentially, plan_targets
 from .reactions import resolve_unicode
-from .render import render_csv, render_html, render_markdown
 from .rich_text import build_rich_text_body
 
 
@@ -433,31 +430,6 @@ def cmd_react(args: argparse.Namespace) -> None:
         print(format_mutation_result(result, "react"))
 
 
-def cmd_render(args: argparse.Namespace) -> None:
-    input_path = Path(args.input)
-    document = json.loads(input_path.read_text(encoding="utf-8"))
-    output = Path(args.output) if args.output else input_path.with_suffix(f".{args.format}")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    if args.format == "md":
-        output.write_text(render_markdown(document), encoding="utf-8")
-    elif args.format == "csv":
-        render_csv(document, output)
-    else:
-        output.write_text(render_html(document), encoding="utf-8")
-    print(
-        json.dumps(
-            {
-                "success": True,
-                "output": str(output.resolve()),
-                "format": args.format,
-                "count": len(document.get("notifications", [])),
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-    )
-
-
 def cmd_open_notifications(args: argparse.Namespace) -> None:
     document = json.loads(Path(args.input).read_text(encoding="utf-8"))
     plan = plan_targets(
@@ -490,29 +462,6 @@ def cmd_open_notifications(args: argparse.Namespace) -> None:
         _print_json({"success": True, "dry_run": True, **plan})
     else:
         print(format_open_plan(plan))
-
-
-def cmd_serve(args: argparse.Namespace) -> None:
-    directory = Path(args.directory).resolve()
-    if not directory.is_dir():
-        raise ValueError(f"Directory not found: {directory}")
-    handler = partial(SimpleHTTPRequestHandler, directory=str(directory))
-    server = ThreadingHTTPServer((args.host, args.port), handler)
-    print(
-        json.dumps(
-            {
-                "success": True,
-                "url": f"http://{args.host}:{args.port}/",
-                "directory": str(directory),
-            },
-            ensure_ascii=False,
-        ),
-        flush=True,
-    )
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        server.server_close()
 
 
 def cmd_dashboard(args: argparse.Namespace) -> None:
@@ -1379,18 +1328,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     open_notifications.add_argument("--confirm")
     open_notifications.set_defaults(handler=cmd_open_notifications)
-
-    render = subparsers.add_parser("render", help="Render a fetch artifact")
-    render.add_argument("--input", required=True)
-    render.add_argument("--format", choices=("md", "csv", "html"), default="md")
-    render.add_argument("--output")
-    render.set_defaults(handler=cmd_render)
-
-    serve = subparsers.add_parser("serve", help="Serve rendered artifacts over HTTP")
-    serve.add_argument("--directory", default="data")
-    serve.add_argument("--host", default="0.0.0.0")
-    serve.add_argument("--port", type=int, default=8765)
-    serve.set_defaults(handler=cmd_serve)
 
     dashboard_cmd = subparsers.add_parser(
         "dashboard",

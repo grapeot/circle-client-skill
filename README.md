@@ -94,6 +94,10 @@ python -m circle_client_skill.probe --path /c/example-space --out data/probe --t
 
 可以把本仓库 URL 交给 coding agent，让它先读取 `AGENTS.md` 和 skill 文件，再把 skill 加入当地的 skill discovery chain。
 
+## 版本变更
+
+- 0.2.0（2026-10-21）：移除 `render` 与 `serve` 命令，通知可视化统一走 `dashboard`（one-stop 交互面）；fetch 的 JSON artifact 仍是规范存储。
+
 ## 稳定性说明
 
 Post moderation uses an admin browser session: `get-flagged-content` reads pending content, while `approve-post` / `reject-post` default to an offline dry-run and require explicit live confirmation. See [the moderation reference](skills/references/post_moderation.md) for target validation, state readback, and concurrency limits.

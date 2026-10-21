@@ -2,7 +2,7 @@
 name: circle-client
 description: >-
   Fetches a signed-in Circle member's notifications through Circle's web internal API
-  and renders them as a clickable grouped HTML view (or Markdown/CSV). Primary use case:
+  and triages them in a local one-stop dashboard. Primary use case:
   viewing / visualizing / triaging your Circle notifications locally. Use when a user
   asks to see, review, visualize, export, or summarize their Circle notifications.
   Also routes post writes (new post, edit post, event recording posts): those go through
@@ -29,20 +29,17 @@ description: >-
 
 ## 看通知 / 通知可视化（首要工作流）
 
-当用户说"看通知 / 我的通知 / notifications / 可视化通知 / 通知 dashboard / 通知面板 / 最近有什么通知 / check my notifications / show notifications / visualize my notifications"等任一表达时，默认走 `fetch` → `render --format html` 两步，这是本 skill 的首要工作流，不要另写可视化脚本：
+当用户说"看通知 / 我的通知 / notifications / 可视化通知 / 通知 dashboard / 通知面板 / 最近有什么通知 / check my notifications / show notifications / visualize my notifications"等任一表达时，默认走 `dashboard`，这是本 skill 的首要工作流，不要另写可视化脚本：
 
 ```bash
-.venv/bin/circle-client fetch --group inbox --per-page 500 --output data/notifications.json
-.venv/bin/circle-client render --input data/notifications.json --format html --output data/index.html
-# macOS 直接打开
-open data/index.html
+.venv/bin/circle-client dashboard            # 127.0.0.1:8780，自动开浏览器；Ctrl-C 停
 ```
 
-`render --format html` 已内置按类分组（Lesson comments / Comments / Likes / New members / Other）的响应式可点击列表，可点击跳转原帖；这就是"可视化通知"的标准答案。只有当用户明确要求聚合统计（类型分布、时间轴、TOP 互动者等）且现成 HTML 不满足时，才在 fetch JSON 上写一次性分析代码，不要为单次需求扩张 CLI contract。
+`dashboard` 把未读按「要回应的讨论 / 点赞 / 其他」三区组织，是"可视化通知"的标准答案。静态 HTML 视图（`render --format html`）已于 0.2.0 移除，不要再写回。只有当用户明确要求聚合统计（类型分布、时间轴、TOP 互动者等）且 dashboard 不满足时，才在 fetch JSON 上写一次性分析代码，不要为单次需求扩张 CLI contract。
 
 # Dashboard（one-stop 通知台，人用的交互面）
 
-当用户想"一条龙处理通知"（看完内容、点头像级反应、标已读，不逐条点开 Circle 网页）时，用 dashboard 取代 fetch+render 的静态视图：
+当用户想"一条龙处理通知"（看完内容、点头像级反应、标已读，不逐条点开 Circle 网页）时，用 dashboard：
 
 ```bash
 .venv/bin/circle-client dashboard            # 127.0.0.1:8780，自动开浏览器；Ctrl-C 停
@@ -72,7 +69,7 @@ open data/index.html
 
 为什么是 CLI 而不是 HTML 按钮：页面 JS 用 `window.open` 连开多个标签会被弹窗拦截器挡下（只有用户点击那一下同步打开的窗口才被允许），而 OS opener 由系统派发给浏览器，不受此限制。
 
-- `--category`：`lesson_comments` / `comments` / `likes` / `members` / `other` / `all`（复用 render 的分类逻辑）。
+- `--category`：`lesson_comments` / `comments` / `likes` / `members` / `other` / `all`（复用 normalize 的分类逻辑）。
 - `--interval`：每条间隔秒数（默认 3）。
 - `--order`：`newest`（默认）/ `oldest`。
 - `--dedupe` / `--no-dedupe`：是否按完整 URL 去重（默认去重；同一消息的 `course_comment` 和 `comment_mention` 会折叠成一条）。
@@ -146,10 +143,6 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 .venv/bin/circle-client open-notifications --input data/notifications.json --category lesson_comments
 .venv/bin/circle-client open-notifications --input data/notifications.json --category lesson_comments --execute --confirm OPEN-NOTIFICATIONS
 .venv/bin/circle-client dashboard [--port 8780] [--no-open]
-.venv/bin/circle-client render --input data/notifications.json --format md --output data/notifications.md
-.venv/bin/circle-client render --input data/notifications.json --format csv --output data/notifications.csv
-.venv/bin/circle-client render --input data/notifications.json --format html --output data/index.html
-.venv/bin/circle-client serve --directory data --host 0.0.0.0 --port 8765
 
 # 帖子、空间、评论、图片、聊天（V1）
 .venv/bin/circle-client spaces
@@ -348,6 +341,5 @@ Fetch JSON 是 source of truth，保留 Circle 返回的完整 notification obje
 
 - `auth-status` 只显示 host、credential presence 和 JWT expiration，不泄露凭证。
 - `fetch` 遍历全部页面，输出 JSON count 与数组长度一致。
-- `render` 输出文件行数/条目数与 fetch artifact 一致。
 - 认证失败时，指导用户从一个当前成功的 notification Fetch/XHR 重新 Copy as cURL。
 - 所有 live artifact 留在 gitignored `data/`。
