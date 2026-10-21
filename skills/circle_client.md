@@ -305,6 +305,12 @@ CLI 没有 `create-event` / `publish-event` 一类命令，也不要为单次需
 
 本仓库没有 `paywall-*` 或 billing 命令。成员 cookie 和 CSRF 也不是 Admin API token。隔离测试 paywall、正常 checkout、延长 genuine trial、取消后归档，走人类可见浏览器，可选再调用官方 Admin API v2。已验证和仅文档的分界、以及不能照抄的请求模板，见 [`references/paywall_subscriptions.md`](references/paywall_subscriptions.md)。这份手册不授权新的 live 写操作；每次写入仍要当次明确授权。
 
+## Chat watching
+
+`watch-diff --target chat:9000000 --member-id 9000001 --participant-id 9000002`
+返回变化及候选 checkpoint，不发通知、不推进 state。调度方在投递成功后提交；
+基线、分页与投递契约见 [`references/watch.md`](references/watch.md)。
+
 ## Probe 工具（默认可见窗口）
 
 CLI 没覆盖的页面（活动表单、新面板）先用 probe 工具看，不要猜 endpoint。`circle_client_skill.probe` 只做四件事：观察、截图、抓请求、回读状态。需要 `browser` extra（`uv pip install -e '.[browser]'` + `python -m playwright install chromium`）。

@@ -1173,6 +1173,23 @@ def _add_course_admin_parsers(subparsers) -> None:
     p.set_defaults(handler=cmd_lesson_media_settings)
 
 
+def cmd_watch_diff(args: argparse.Namespace) -> None:
+    from .watch import load_state, scan
+
+    if not args.target.startswith('chat:'):
+        raise ValueError('Only chat:<space_id> targets are supported')
+    settings = load_settings(Path(args.env_file))
+    try:
+        result = scan(CircleClient(settings, timeout=args.timeout), source=settings.base_url,
+                      member_id=args.member_id,
+                      targets=[{'space_id': int(args.target.split(':')[1]),
+                                'participant_id': args.participant_id}],
+                      state=load_state(Path(args.state)))
+    except CircleClientError as exc:
+        raise CircleClientError('Chat watch request failed', status_code=exc.status_code) from None
+    _print_json(result)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="circle-client",
@@ -1582,6 +1599,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lesson_comments.add_argument("--timeout", type=float, default=30)
     lesson_comments.set_defaults(handler=cmd_lesson_comments)
+
+    watch = subparsers.add_parser('watch-diff', help='Compute chat changes without advancing local state')
+    watch.add_argument('--target', required=True, help='chat:<space_id>')
+    watch.add_argument('--member-id', required=True, type=int)
+    watch.add_argument('--participant-id', required=True, type=int, help='Verified per-room member participant id')
+    watch.add_argument('--state', default='data/watch_state.json')
+    watch.add_argument('--timeout', type=float, default=30)
+    watch.set_defaults(handler=cmd_watch_diff)
 
     _add_course_admin_parsers(subparsers)
 
