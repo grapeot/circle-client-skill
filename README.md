@@ -96,6 +96,7 @@ python -m circle_client_skill.probe --path /c/example-space --out data/probe --t
 
 ## 版本变更
 
+- 0.2.3（2026-10-21）：`/api/verify` 回读改用通知 URL 里的线程 anchor（与刷新路径一致），窗口外线程不再误判为 missing 并污染缓存；标已读循环收尾自关 spinner——code review 修复。
 - 0.2.2（2026-10-21）：`/api/verify` 失败响应改为固定错误消息，不再透传上游错误串（可能含响应正文片段）——privacy review 修复。
 - 0.2.1（2026-10-21）：dashboard 反应/标已读改为原地更新——操作后不再整页自动刷新，行以 done 样式保留，新增只读回读端点 `/api/verify`（重拉单 context 确认 reaction 落地）；行在下次手动刷新时从列表移除。
 - 0.2.0（2026-10-21）：移除 `render` 与 `serve` 命令，通知可视化统一走 `dashboard`（one-stop 交互面）；fetch 的 JSON artifact 仍是规范存储。

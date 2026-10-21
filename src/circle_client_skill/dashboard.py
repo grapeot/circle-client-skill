@@ -416,6 +416,17 @@ class DashboardCache:
             self._entries.pop(key, None)
 
 
+def _room_anchors(notifications: list[dict[str, Any]]) -> dict[int, int | None]:
+    """Map target message id -> thread-root anchor from notification web URLs."""
+    anchors: dict[int, int | None] = {}
+    for notification in notifications:
+        notifiable_id = notification.get("notifiable_id")
+        match = re.search(r"#message_(\d+)", notification.get("action_web_url") or "")
+        if notifiable_id is not None:
+            anchors[int(notifiable_id)] = int(match.group(1)) if match else None
+    return anchors
+
+
 def _enrich_context(
     client: CircleClient,
     key: tuple[Any, ...],
@@ -440,12 +451,7 @@ def _enrich_context(
         try:
             if kind == "room":
                 room_uuid = key[1]
-                anchors: dict[int, int | None] = {}
-                for notification in notifications:
-                    notifiable_id = notification.get("notifiable_id")
-                    match = re.search(r"#message_(\d+)", notification.get("action_web_url") or "")
-                    if notifiable_id is not None:
-                        anchors[int(notifiable_id)] = int(match.group(1)) if match else None
+                anchors = _room_anchors(notifications)
                 rows = cache.rows_for(
                     client,
                     ("room", room_uuid),
@@ -812,14 +818,21 @@ class DashboardServer:
             raise ActionError("notification_id / target_id 必须是整数")
         with self.state_lock:
             context = self._locate(kind, target_id, notification_id if isinstance(notification_id, int) else None)
+            notes = [
+                note
+                for target in context.get("targets", [])
+                for nid in (target.get("notification_ids") or [])
+                if (note := self.notifications_by_id.get(nid)) is not None
+            ]
         key = self._cache_key_for(kind, context)
         target_ids = {int(t["target"]["id"]) for t in context.get("targets", []) if t.get("target", {}).get("id") is not None}
         target_ids.add(int(target_id))
         try:
             if kind == "chat_room_message":
                 room_uuid = context["context_id"]
+                anchors = _room_anchors(notes)
                 rows = self.cache.rows_for(
-                    self.client, key, target_ids, lambda cl, k, t: build_room_rows(cl, room_uuid, t)
+                    self.client, key, target_ids, lambda cl, k, t: build_room_rows(cl, room_uuid, t, anchors)
                 )
             elif kind == "comment":
                 post_id = context["context_id"]

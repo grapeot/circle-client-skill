@@ -633,6 +633,64 @@ def test_verify_error_response_is_fixed_message(tmp_path) -> None:
     assert "私人消息正文片段" not in excinfo.value.message
 
 
+def test_verify_refetch_uses_thread_anchor(tmp_path) -> None:
+    """verify must refetch with the notification's thread anchor; without it an
+    out-of-window thread resolves to a missing row and pollutes the cache, so a
+    later real refresh would serve the degraded rows forever."""
+    target = _lesson_message_with_reactions([])
+    target["parent_message_id"] = 9000090  # thread root sits outside the default window
+    window_root = {
+        "id": 9000001,
+        "chat_room_participant_id": 5,
+        "created_at": "2026-10-01T08:00:00.000Z",
+        "rich_text_body": {
+            "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "old root"}]}]},
+            "attachments": [],
+        },
+        "replies_count": 0,
+        "reactions": [],
+    }
+    client = FakeClient(
+        messages=[window_root],
+        replies=[target],
+        participants=[{"id": 5, "name": "Cara", "community_member_id": 9}],
+    )
+    client.fetch_notifications = lambda: _doc(  # type: ignore[method-assign]
+        [_room_notification(id=50, action_web_url="https://community.example.com/c/ai#message_9000090")]
+    )
+
+    def create_reaction_with_side_effect(kind: str, target_id: int, unicode_code: str, *, execute: bool = False) -> dict[str, Any]:
+        assert execute is True
+        client.calls.append(("create_reaction", {"kind": kind, "id": target_id, "unicode": unicode_code}))
+        target["reactions"].append({"unicode": unicode_code, "count": 1})
+        return {"success": True, "reactions": None}
+
+    client.create_reaction = create_reaction_with_side_effect  # type: ignore[method-assign]
+    server = DashboardServer({}, port=8999, state_dir=tmp_path, client=client)
+    server.build_state()
+    server.react({"notification_id": 50, "kind": "chat_room_message", "target_id": 9000002, "unicode": "heart"})
+
+    def anchor_refetches() -> int:
+        return sum(1 for c in client.calls if c[0] == "fetch_chat_replies" and c[1]["parent"] == 9000090)
+
+    before = anchor_refetches()
+    result = server.verify({"notification_id": 50, "kind": "chat_room_message", "target_id": 9000002})
+    row = result["row"]
+    assert row["missing"] is False
+    assert row["reactions"] == [{"unicode": "2764-fe0f", "emoji": None, "count": 1}]
+    assert anchor_refetches() == before + 1  # the refetch took the anchored path
+
+    messages_before = sum(1 for c in client.calls if c[0] == "list_chat_messages")
+    server.build_state()  # verify's cache entry is anchor-compatible -> hit, no refetch
+    assert sum(1 for c in client.calls if c[0] == "list_chat_messages") == messages_before
+
+
+def test_page_terminates_spinner_after_mark_read() -> None:
+    """The mark-read loops clear the spinner themselves now that the trailing
+    auto-refresh (which used to do it) is gone."""
+    assert PAGE.count("if (i >= ids.length) { spinner(false); render(); return; }") == 2
+
+
 def test_server_state_persists_artifact(tmp_path) -> None:
     client = FakeClient()
     client.fetch_notifications = lambda: _doc([])  # type: ignore[method-assign]

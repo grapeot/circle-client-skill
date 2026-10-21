@@ -129,7 +129,7 @@ async function react(row, payload) {
 }
 function markRead(row) {
   const ids = allIds(row); let i = 0;
-  const next = () => { if (i >= ids.length) { render(); return; }
+  const next = () => { if (i >= ids.length) { spinner(false); render(); return; }
     const id = ids[i++]; spinner(true, '标记中…');
     api('/api/mark_read', { method: 'POST', body: JSON.stringify({ notification_id: id }) })
       .catch(e => { clearFail(); fail('标记已读失败：' + e.message); })
@@ -146,7 +146,7 @@ function markGroup(group, btn) {
   }
   btn.dataset.confirm = ''; btn.classList.remove('primary');
   const ids = group.notification_ids || []; let i = 0;
-  const next = () => { if (i >= ids.length) { render(); return; }
+  const next = () => { if (i >= ids.length) { spinner(false); render(); return; }
     const id = ids[i++]; spinner(true, `已读 ${i}/${ids.length}…`);
     api('/api/mark_read', { method: 'POST', body: JSON.stringify({ notification_id: id }) })
       .catch(e => { clearFail(); fail('标记已读失败：' + e.message); })
