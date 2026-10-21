@@ -2,6 +2,17 @@
 
 ## Changelog
 
+### 2026-10-21 Reusable chat watch-diff
+
+- GET-only chat scanning, root pagination with progress/page bounds, dirty-thread
+  reads and actual-author participation. No notification or automatic checkpoint writes.
+- Silent missing-file baseline; corrupt/identity-mismatched state fails closed.
+  Delivery consumer commits via digest-checked atomic 0600 checkpoints.
+- Offline tests cover baseline, events, self/other-thread suppression, pagination
+  failure, timestamp-only change, stale commit and privacy of state permissions.
+- Public contract: `skills/references/watch.md`; runtime targets and mail runner
+  remain outside tracked files.
+
 ### 2026-10-21 Verify read-back uses the thread anchor; spinner self-terminates (0.2.3)
 
 - Code review（grok）两处 must-fix：
