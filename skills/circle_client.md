@@ -283,7 +283,7 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 
 **原则：新建的 section 和 lesson 一律是 Draft；浏览器命令发现 lesson 已发布就拒绝（除非 `--allow-published` 且用户对这次修改明确授权）；Publish 由人点。**
 
-分工：**机械步骤用 CLI，判断留给 agent。** 建 section / lesson、按清单填正文、上传 featured 视频、字幕、章节、缩略图都是命令，命令内部处理了踩过的坑（保存前等表单同步、首尾空段落、悬停才出现的按钮、对话框内 seek、删章节的二次确认、缩略图裁剪对话框），并在保存后回读核对。agent 要做的是：先读几个现有 lesson 归纳这门课的写法（标题、多语言排法、视频 lesson 模板），再把教材转成 **lesson 清单**（`{"title", "items": [{"html"} | {"media", "kind": "image"|"video", "portrait"}]}`；表格、行内代码、公式要在这一步转换掉，编辑器没有这些节点），然后按顺序跑命令。
+分工：**机械步骤用 CLI，判断留给 agent。** 建 section / lesson、按清单填正文、上传 featured 视频、字幕、章节、缩略图都是命令，命令内部处理了踩过的坑（保存前等表单同步、首尾空段落、悬停才出现的按钮、对话框内 seek、等新视频处理到能 seek、删章节的二次确认、缩略图裁剪对话框），并在保存后回读核对。agent 要做的是：先读几个现有 lesson 归纳这门课的写法（标题、多语言排法、视频 lesson 模板），再把教材转成 **lesson 清单**（`{"title", "items": [{"html"} | {"media", "kind": "image"|"video", "portrait"}]}`；表格、行内代码、公式要在这一步转换掉，编辑器没有这些节点），然后按顺序跑命令。
 
 ```bash
 .venv/bin/circle-client open-browser --path /c/example-course --port 9333 --profile-dir data/visible_browser/profile
@@ -291,6 +291,8 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 .venv/bin/circle-client create-lesson -s 9000000 --section-id 9000001 --manifest out/01.json --execute --confirm CREATE-LESSON
 .venv/bin/circle-client fill-lesson -s 9000000 --lesson-id 9000002 --manifest out/01.json --execute --confirm FILL-LESSON
 ```
+
+`lesson-media-settings` 要等 featured 视频处理完再跑；它中途失败时什么都没存（封面、字幕也一样），整步重跑。lesson 的 Publish 流程里没有通知学员的选项，不要让人在发布时决定通知。
 
 完整流程、清单格式、章节文件格式、每个命令背后的接口和坑、交付前核对清单见 [`references/course_lessons.md`](references/course_lessons.md)。
 

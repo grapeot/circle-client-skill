@@ -163,3 +163,155 @@ def test_media_settings_needs_something_to_set(monkeypatch) -> None:
 def test_course_admin_commands_accept_global_flags_after_subcommand() -> None:
     args = cli.build_parser().parse_args(["course-sections", "-s", "1", "--json"])
     assert args.json is True
+
+
+# --- lesson-media-settings while the featured video is still processing ---
+
+
+def test_player_ready() -> None:
+    from circle_client_skill.course_admin import player_ready
+
+    assert player_ready(None, 700) == (False, "no video in the dialog yet")
+    assert player_ready({"duration": None, "seekable_end": None}, 700)[0] is False
+    ok, detail = player_ready({"duration": 10.0, "seekable_end": 10.0}, 700)
+    assert not ok and "00:10" in detail and "11:40" in detail
+    assert player_ready({"duration": 1070.0, "seekable_end": 300.0}, 700)[0] is False
+    assert player_ready({"duration": 1070.0, "seekable_end": None}, 700)[0] is True
+    assert player_ready({"duration": 1070.0, "seekable_end": 1070.0}, 700)[0] is True
+
+
+def test_retry_until_retries_then_succeeds() -> None:
+    from circle_client_skill.course_admin import WaitBudget, retry_until
+
+    results = iter([(False, "a"), (False, "b"), (True, "done")])
+    waits: list[int] = []
+    budget = WaitBudget(60_000)
+    assert retry_until(lambda: next(results), budget=budget, wait=waits.append,
+                       interval_ms=5000, what="x") == "done"
+    assert waits == [5000, 5000]
+    assert budget.spent_ms == 10_000
+
+
+def test_retry_until_gives_up_at_budget_with_rerun_hint() -> None:
+    from circle_client_skill.course_admin import MediaNotReadyError, WaitBudget, retry_until
+
+    waits: list[int] = []
+    with pytest.raises(MediaNotReadyError) as err:
+        retry_until(lambda: (False, "button says 'Add at 00:10'"), budget=WaitBudget(12_000),
+                    wait=waits.append, interval_ms=5000, what="seek failed")
+    assert waits == [5000, 5000, 2000]  # bounded: never waits past the budget
+    message = str(err.value)
+    assert "Add at 00:10" in message and "still processing" in message
+    assert "nothing was saved" in message and "Rerun" in message
+
+
+class _Loc:
+    def __init__(self, ui: _FakeUI, name: str) -> None:
+        self.ui, self.name = ui, name
+
+    first = last = property(lambda self: self)
+
+    def count(self) -> int:
+        return 0  # no existing chapters to delete
+
+    def click(self, **_: object) -> None:
+        self.ui.actions.append(f"click {self.name}")
+        if self.name == "Add at":
+            self.ui.chapters_at.append(self.ui.position)
+
+    def fill(self, text: str) -> None:
+        self.ui.actions.append(f"fill {text}")
+
+    def press(self, _key: str) -> None:
+        pass
+
+    def wait_for(self, **_: object) -> None:
+        pass
+
+    def inner_text(self) -> str:
+        return f"Add at {self.ui.position // 60:02d}:{self.ui.position % 60:02d}"
+
+
+class _FakeUI:
+    """Page and dialog in one: the preview can only seek up to ``ready_s``, which grows with each wait."""
+
+    def __init__(self, ready_s: int, grow_per_wait_s: int) -> None:
+        self.ready_s, self.grow = ready_s, grow_per_wait_s
+        self.position = 0
+        self.actions: list[str] = []
+        self.chapters_at: list[int] = []
+        self.waited_ms = 0
+
+    def wait_for_timeout(self, ms: int) -> None:
+        self.waited_ms += ms
+        if ms >= 2000:  # only the retry waits, not the UI settle waits
+            self.ready_s += self.grow
+
+    def evaluate(self, js: str, arg: object = None) -> object:
+        from circle_client_skill.course_admin import PLAYER_STATE_JS, SEEK_JS
+
+        if js == PLAYER_STATE_JS:
+            return {"duration": 1070.0, "seekable_end": float(self.ready_s)}
+        if js == SEEK_JS:
+            self.position = min(int(arg), self.ready_s)  # clamped like a still-processing stream
+            return self.position
+        return []  # tracks / poster readback
+
+    def get_by_role(self, _role: str, name: str = "", **_: object) -> _Loc:
+        return _Loc(self, name)
+
+    def get_by_text(self, text: str) -> _Loc:
+        return _Loc(self, text)
+
+    def locator(self, selector: str) -> _Loc:
+        return _Loc(self, "Add at" if "Add at" in selector else selector)
+
+    def goto(self, _url: str) -> None:
+        pass
+
+
+def _run_media_settings(monkeypatch, ui: _FakeUI) -> dict:
+    from circle_client_skill import course_admin
+
+    monkeypatch.setattr(course_admin, "open_editor", lambda *a, **k: None)
+    monkeypatch.setattr(course_admin, "open_customize_media", lambda page: ui)
+    chapters = [(0, "Intro"), (229, "Two"), (434, "Three"), (700, "Four")]
+    return course_admin.set_media_settings(ui, url="https://example.invalid/x", chapters=chapters,
+                                           log=lambda _m: None)
+
+
+def test_media_settings_waits_for_processing_video_then_adds_chapters(monkeypatch) -> None:
+    ui = _FakeUI(ready_s=10, grow_per_wait_s=120)
+    _run_media_settings(monkeypatch, ui)
+    assert ui.chapters_at == [229, 434, 700]
+    assert "click Save" in ui.actions
+
+
+def test_media_settings_not_ready_saves_nothing(monkeypatch) -> None:
+    from circle_client_skill.course_admin import MEDIA_READY_BUDGET_MS, MediaNotReadyError
+
+    ui = _FakeUI(ready_s=10, grow_per_wait_s=0)
+    with pytest.raises(MediaNotReadyError, match="still processing"):
+        _run_media_settings(monkeypatch, ui)
+    assert ui.actions == []  # failed before the thumbnail, transcript or chapters were touched
+    assert ui.waited_ms <= MEDIA_READY_BUDGET_MS + 10_000
+
+
+def test_media_settings_seek_retry_is_bounded(monkeypatch) -> None:
+    from circle_client_skill import course_admin
+
+    ui = _FakeUI(ready_s=1070, grow_per_wait_s=0)
+    # duration looks complete but seeks past 00:10 keep being clamped
+    original = ui.evaluate
+
+    def evaluate(js: str, arg: object = None) -> object:
+        if js == course_admin.SEEK_JS:
+            ui.position = min(int(arg), 10)
+            return ui.position
+        return original(js, arg)
+
+    ui.evaluate = evaluate  # type: ignore[method-assign]
+    with pytest.raises(course_admin.MediaNotReadyError, match="Add at 00:10"):
+        _run_media_settings(monkeypatch, ui)
+    assert "click Save" not in ui.actions
+    assert ui.waited_ms <= course_admin.MEDIA_READY_BUDGET_MS + 400 * 1200

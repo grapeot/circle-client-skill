@@ -17,6 +17,9 @@ the editor copies its JSON into the form on a debounce, so Save right after a pr
 the old body; Circle drops leading and trailing empty paragraphs; the Customize media button only renders
 while the pointer is over the player; the lesson editor's own player is wider than the dialog preview;
 deleting a chapter asks for confirmation.
+Right after a featured video upload Circle is still processing it, and the dialog preview cannot seek
+past the part that is ready (2026-10-21: "Add at 00:10" when 03:49 was wanted), so the chapter step waits
+for the player and retries each seek within a bounded budget.
 """
 
 from __future__ import annotations
@@ -350,6 +353,66 @@ VIDEOS_JS = """(root) => { const vs = []; const walk = r => r.querySelectorAll('
   walk(root); return vs.sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width) }"""
 # seek the preview inside the dialog: on the lesson editor the page's own player is wider
 SEEK_JS = f"(d, s) => {{ const v = ({VIDEOS_JS})(d)[0]; v.pause(); v.currentTime = s; return v.currentTime }}"
+# what the dialog preview can play so far: duration (null until known) and the end of its seekable range
+PLAYER_STATE_JS = f"""(d) => {{ const v = ({VIDEOS_JS})(d)[0]; if (!v) return null;
+  const s = v.seekable; return {{duration: Number.isFinite(v.duration) ? v.duration : null,
+  seekable_end: s && s.length ? s.end(s.length - 1) : null}} }}"""
+MEDIA_READY_BUDGET_MS = 300_000  # shared by the readiness wait and all chapter seeks
+MEDIA_RETRY_MS = 5000
+NOT_READY_HINT = (
+    "the featured video is probably still processing on Circle; nothing was saved (thumbnail and "
+    "transcript included). Rerun lesson-media-settings in a few minutes."
+)
+
+
+class MediaNotReadyError(RuntimeError):
+    pass
+
+
+@dataclass
+class WaitBudget:
+    """Milliseconds of waiting left; counts only the waits it hands out, so tests can drive it."""
+
+    total_ms: int
+    spent_ms: int = 0
+
+    def left(self) -> int:
+        return max(0, self.total_ms - self.spent_ms)
+
+
+def retry_until(
+    attempt: Callable[[], tuple[bool, str]],
+    *,
+    budget: WaitBudget,
+    wait: Callable[[int], None],
+    interval_ms: int = MEDIA_RETRY_MS,
+    what: str,
+) -> str:
+    """Call ``attempt`` until it reports success, waiting ``interval_ms`` between tries while budget lasts."""
+    while True:
+        ok, detail = attempt()
+        if ok:
+            return detail
+        step = min(interval_ms, budget.left())
+        if step <= 0:
+            raise MediaNotReadyError(f"{what}: {detail}; {NOT_READY_HINT}")
+        wait(step)
+        budget.spent_ms += step
+
+
+def player_ready(state: dict[str, Any] | None, last_seconds: int) -> tuple[bool, str]:
+    """The preview can seek to ``last_seconds`` once its duration (and seekable range, if any) covers it."""
+    if not state:
+        return False, "no video in the dialog yet"
+    duration = state.get("duration")
+    if duration is None:
+        return False, "player duration unknown"
+    end = state.get("seekable_end") or duration
+    if duration < last_seconds or end < last_seconds:
+        return False, f"player covers {mmss(int(min(duration, end)))}, last chapter at {mmss(last_seconds)}"
+    return True, f"player covers {mmss(int(min(duration, end)))}"
+
+
 TRACKS_JS = f"""() => {{ const v = ({VIDEOS_JS})(document)[0]; if (!v) return [];
   return [...v.textTracks].map(t => {{ if (t.mode === 'disabled') t.mode = 'hidden';
     return {{kind: t.kind, label: t.label, cues: t.cues ? t.cues.length : null,
@@ -385,6 +448,12 @@ def set_media_settings(
     """Custom transcript, chapters and custom video thumbnail through Customize media; then read tracks back."""
     open_editor(page, url, allow_published=allow_published)
     dialog = open_customize_media(page)
+    budget = WaitBudget(MEDIA_READY_BUDGET_MS)
+    if chapters:  # before touching anything in the dialog, so a not-ready video costs nothing
+        log(retry_until(
+            lambda: player_ready(dialog.evaluate(PLAYER_STATE_JS), chapters[-1][0]),
+            budget=budget, wait=page.wait_for_timeout, what="video not ready for chapters",
+        ))
     if video_thumbnail:
         # Custom thumbnail > "Add image" opens a "Choose image" dialog with its own file input
         dialog.get_by_role("button", name="Add image").click()
@@ -428,12 +497,16 @@ def set_media_settings(
         box.press("Enter")
         page.wait_for_timeout(800)
         for seconds, title in chapters[1:]:
-            dialog.evaluate(SEEK_JS, seconds)
-            page.wait_for_timeout(1200)
             add = dialog.locator('button:has-text("Add at")').first
+
+            def seek(seconds: int = seconds, add: Any = add) -> tuple[bool, str]:
+                dialog.evaluate(SEEK_JS, seconds)  # re-issued on every try
+                page.wait_for_timeout(1200)
+                label = add.inner_text().strip()
+                return label.endswith(mmss(seconds)), f"button says {label!r}, wanted {mmss(seconds)}"
+
+            retry_until(seek, budget=budget, wait=page.wait_for_timeout, what="seek failed")
             label = add.inner_text().strip()
-            if not label.endswith(mmss(seconds)):
-                raise RuntimeError(f"seek failed: button says {label!r}, wanted {mmss(seconds)}")
             add.click()
             page.wait_for_timeout(800)
             box = dialog.locator("input[name=title]").last

@@ -72,7 +72,9 @@ section 名最长 100 个字符，命令在 dry-run 时就会检查。新 sectio
   --execute --confirm LESSON-MEDIA-SETTINGS
 ```
 
-章节文件一行一个 `MM:SS 标题`（或 `H:MM:SS`），第一行必须是 `00:00`，`#` 开头的行是注释。三个参数可以分开给；给了 `--chapters` 时会先删光已有章节再按文件重加，所以重跑是安全的。命令最后从页面的 `video.textTracks` 读回字幕条数和章节标题，并给出视频的 poster 地址。字幕文件怎么做（自动转写不可靠时自制双语 WebVTT）见 [`recording_posts.md`](recording_posts.md) 第六节。
+章节文件一行一个 `MM:SS 标题`（或 `H:MM:SS`），第一行必须是 `00:00`，`#` 开头的行是注释。三个参数可以分开给；给了 `--chapters` 时会先删光已有章节再按文件重加，所以重跑是安全的。命令最后从页面的 `video.textTracks` 读回字幕条数和章节标题，并给出视频的 poster 地址。
+
+**等 featured 视频处理完再跑 `lesson-media-settings`。** 上传到 100% 之后 Circle 还要处理一段时间，这期间对话框里的预览只能 seek 到已经处理好的部分（2026-10-21 一个 100 MB、18 分钟的视频，上传完立刻跑，要 03:49 却落在 00:10，约 3 分钟后重跑成功）。命令给了 `--chapters` 时会先等预览的时长覆盖最后一个章节，每次 seek 也会重试，合计最多等 5 分钟；还不行就报错，提示几分钟后重跑。**对话框只在最后点一次 Save，中途任何一步失败都什么也没存下**，日志里已经打印的 "video thumbnail set"、"transcript attached" 也不算数，要把整步重跑，不能只补章节。字幕文件怎么做（自动转写不可靠时自制双语 WebVTT）见 [`recording_posts.md`](recording_posts.md) 第六节。
 
 封面图用品牌规范做成 16:9（1280×720 或其倍数）：同一张图既做 lesson 缩略图（`fill-lesson --thumbnail`，显示在课程目录里，很小）也做视频封面帧（`--video-thumbnail`，学员点播放前看到的画面）。不设视频封面时，Circle 用视频的某一帧，录屏开头往往是别的场合的标题页。
 
@@ -84,7 +86,7 @@ section 名最长 100 个字符，命令在 dry-run 时就会检查。新 sectio
 - 在后台用 Preview（View as student）抽看一两个 lesson：多语言分隔、表格图、代码块、正文视频、视频封面。
 - 学员视角的 `course-lessons` 里看不到新 section。
 
-然后告诉人：在哪个 space 的哪个 section、lesson 列表、留给人决定的事（评论开关、发布时要不要通知学员、section 位置），由人通读后 Publish。
+然后告诉人：在哪个 space 的哪个 section、lesson 列表、留给人决定的事（评论开关、section 位置），由人通读后 Publish。lesson 的 Publish 流程里没有「通知学员」的选项（2026-10-21 实测一次，同一 space 已有 lesson 的 `notify_students` 都是 false），不要让人在发布时决定要不要通知。
 
 ## 命令背后：接口和编辑器行为
 
@@ -120,6 +122,7 @@ POST /internal_api/direct_uploads + S3 PUT                           ← upload-
 
 - **按钮只在指针悬停在播放器上时才渲染。** 先移动鼠标到播放器上，等按钮出现再点。
 - **seek 要限定在对话框内部。** 编辑页自己的主播放器比对话框里的预览更宽，"页面上最宽的 video" 会选中主播放器，结果 seek 不生效，每次 Add at 都落在同一时间附近（一次实测依次落在 00:10、00:20……）。命令在对话框元素里递归 shadow DOM 找 video，并在每次点 Add at 之前核对按钮上的时间。
+- **视频还在处理时 seek 不过去。** 预览的 `duration` / `seekable` 只覆盖已处理的部分，设 `currentTime` 会被夹到那里，Add at 按钮显示的是夹住后的时间。命令在动对话框里任何东西之前先等它覆盖最后一个章节，每次 seek 失败后重新 seek，共享一个 5 分钟的等待上限。
 - **删除章节有二次确认**（"Delete this chapter?"），确认对话框打开时 Customize media 在无障碍树里变成隐藏。章节行的 Actions 菜单只有 Rename 和 Delete，时间不能改，写错只能删掉重加。
 - Upload a custom transcript 的 radio 是视觉隐藏的，点它的文字标签；已经挂了 .vtt 时要先在对话框里删掉旧文件。
 - 视频封面：Custom thumbnail 区的 "Add image" 按钮打开 "Choose image" 对话框（Upload / Unsplash），里面有自己的文件输入框，设文件后点 Save changes。
@@ -139,6 +142,7 @@ POST /internal_api/direct_uploads + S3 PUT                           ← upload-
 | 设了缩略图，页面的 Save 点不到 | 裁剪对话框还开着。点它的 Save changes。 |
 | `Customize media` 按钮找不到 | 只在悬停时渲染。 |
 | 章节全挤在开头几十秒 | seek 了页面主播放器。限定在对话框内找 video。 |
+| `seek failed: button says 'Add at 00:10', wanted 03:49`，或 video still processing 的报错 | featured 视频刚上传完还在处理。几分钟后重跑整个 `lesson-media-settings`；失败时封面和字幕也没存。 |
 | 删章节的循环提前结束、后续操作超时 | 每次 Delete 都有确认对话框。 |
 | 视频封面点了 Add image 没有文件选择框 | 它打开的是 "Choose image" 对话框，对里面的文件输入框设文件。 |
 | 视频封面是录屏开头别的场合的标题页 | 用 `--video-thumbnail` 换成模块封面。 |
