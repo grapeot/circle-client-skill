@@ -15,7 +15,7 @@ description: >-
 
 ## 目标
 
-把当前登录成员在 Circle 网页中可见的未读通知完整抓取到本地 artifact，并渲染成适合阅读或 AI 后处理的 Markdown/CSV/HTML。已读通知不进入 artifact。当前稳定能力严格只读。
+把当前登录成员在 Circle 网页中可见的未读通知完整抓取到本地 JSON artifact（规范存储），并在 one-stop dashboard 里浏览、反应与标已读。已读通知不进入 artifact。当前稳定能力严格只读。
 
 **浏览器默认可见。** 浏览器驱动的观察和交互默认走人类可见的 Chrome：用 `open-browser` 打开窗口，再连接它输出的 CDP。不要启动 headless，除非用户明确要求，或当前环境没有 GUI。
 
@@ -335,7 +335,7 @@ print(probe.guard.blocked)                             # 被拦下的写请求�
 
 ## 输出与 AI Filter
 
-Fetch JSON 是 source of truth，保留 Circle 返回的完整 notification object。Markdown/CSV 只是阅读视图。用户要求按作者、时间、类型、关键词或重要性筛选时，Agent 可以现场读取 JSON 并编写一次性分析代码；不要为了单次筛选扩张 CLI contract。
+Fetch JSON 是 source of truth，保留 Circle 返回的完整 notification object。用户要求按作者、时间、类型、关键词或重要性筛选时，Agent 可以现场读取 JSON 并编写一次性分析代码；不要为了单次筛选扩张 CLI contract。
 
 ## 验收标准
 

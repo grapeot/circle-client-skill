@@ -141,4 +141,4 @@ Live 验证清单（每项一次动作、有回读、当次授权）：
 2. 快捷 emoji 集：❤️(2764-fe0f)、👍(1f44d)、⭐(2b50)。
 3. 回复不在 dashboard 里做（保留「对真实读者可见回复走可见浏览器」原则）。
 4. 服务只绑 localhost；dashboard 启动时自动开浏览器（`--no-open` 关）。
-5. 数据流：dashboard 自己 refresh + 落 artifact（`data/dashboard.json`），旧 `fetch/render` 工作流原样保留。
+5. 数据流：dashboard 自己 refresh + 落 artifact（`data/dashboard.json`）；`fetch` 的 JSON artifact 保留，静态 `render` 已于 0.2.0 移除。
