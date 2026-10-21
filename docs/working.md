@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-21 Verify failure responses use a fixed message (0.2.2)
+
+- Privacy review（gpt_6_sol）must-fix：`/api/verify` 的回读重拉若上游返回非 2xx，client 的 `CircleClientError` 消息里带 `response.text[:200]` 正文片段（凭证正则遮罩不删普通正文），`_run_action` 会把 `str(exc)` 原样放进错误 JSON——成功响应的字段白名单管不到失败分支。
+- 修法：`verify()` 把 enrichment 调用包进 `try/except CircleClientError`，统一抛固定消息「回读失败；请点刷新重试」（502），上游错误串只进本地 traceback，不出现在响应面。新增 `test_verify_error_response_is_fixed_message`（合成 body 片段断言不出现在 ActionError 消息）。
+- 边界说明：`/api/state` 的 per-context `error` 字段与 `/api/react` 的失败响应仍有同一透传模式（0.2.0 前既有行为，本 PR 不扩大也不收缩该面）；verify 作为新端点按「只读端点响应面无内容」标准修。
+
 ### 2026-10-21 In-place reaction update with targeted read-back (0.2.1)
 
 - 行为变化（用户拍板）：dashboard 上点反应/标已读后不再整页自动刷新——原来的 400ms 防抖刷新会重拉未读，刚标已读的行立刻从页面消失。现在行原地保留为 done 样式（半透明 + 「✓ 处理过」），到下一次手动刷新才从列表移除。
