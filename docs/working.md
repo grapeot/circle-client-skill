@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-21 Lesson media settings wait for a processing video
+
+- 一次真实课程发布：featured 视频（约 100 MB、17:50）上传到 100% 后立刻跑 `lesson-media-settings`，章节循环报 `seek failed: button says 'Add at 00:10', wanted 03:49`。日志里已打印封面和字幕步骤，但 Save 在函数末尾，什么都没存；约 3 分钟后整步重跑成功。判断是 Circle 还在处理视频，预览只能 seek 到已处理的部分。
+- `set_media_settings` 给了章节时，先等对话框预览的 `duration` / `seekable` 覆盖最后一个章节，再碰封面和字幕；每次 seek 失败后重新执行 `SEEK_JS` 重试。两者共享 5 分钟等待上限，超时抛 `MediaNotReadyError`，说明视频可能还在处理、什么都没存、几分钟后重跑。等待逻辑拆成 `retry_until` / `player_ready` 纯函数，离线测试用假页面覆盖了等待后成功、就绪超时不动对话框、seek 重试有界三种情况。
+- 文档：`course_lessons.md` 和 root skill 写明等视频处理完再跑、失败时整步重跑；lesson 的 Publish 流程里没有通知学员选项（2026-10-21 观察一次），交付清单不再让人决定发布时是否通知。
+
 ### 2026-10-20 Verified Post moderation
 
 - Added `get-flagged-content`, offline-default `approve-post` and `reject-post`, with explicit CLI confirmation and expected Post/space identifiers.
