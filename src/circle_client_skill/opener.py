@@ -15,7 +15,7 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit
 
-from .render import category_for_notification, normalize_notification
+from .normalize import category_for_notification, normalize_notification
 
 CATEGORIES = ("lesson_comments", "comments", "likes", "members", "other", "all")
 

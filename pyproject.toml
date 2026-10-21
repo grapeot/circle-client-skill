@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "circle-client-skill"
-version = "0.1.0"
+version = "0.2.0"
 description = "Unofficial local-first Circle member notification client and agent skill"
 readme = "README.md"
 requires-python = ">=3.11"

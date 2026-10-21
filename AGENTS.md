@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-这是一个面向 Circle 普通成员的非官方客户端 Skill。当前稳定范围只有：从浏览器 Copy as cURL 导入临时登录凭证、读取 new notification count、分页抓取个人未读通知，以及把抓取结果渲染为 Markdown、CSV 或响应式 HTML。
+这是一个面向 Circle 普通成员的非官方客户端 Skill。当前稳定范围只有：从浏览器 Copy as cURL 导入临时登录凭证、读取 new notification count、分页抓取个人未读通知（存为 JSON artifact），以及 one-stop 通知 dashboard（人用的交互面，0.2.0 起取代已移除的静态 render/serve）。
 
 ## 结构
 
