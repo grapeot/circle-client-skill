@@ -207,7 +207,7 @@ Thread reply 的 POST 返回 `{creation_uuid, sent_at, parent_message_id}`——
 
 完整设计见 `docs/design_dashboard.md`。要点：
 
-- `circle-client dashboard` 在 127.0.0.1:8780 起 `_DashboardHTTPServer`：`GET /` 返回单页 UI（`dashboard_ui.py` 内嵌模板，无外部资源）；`GET /api/state` 重新 fetch 未读 + 分组 + enrichment（per-context 缓存 + ThreadPool，评论走 `list_comments` 分页、lesson 讨论走 `list-chat-messages` + replies、参与者名字走 participants endpoint）；`POST /api/react` 与 `POST /api/mark_read` 是唯一两条 mutation 路径。
+- `circle-client dashboard` 在 127.0.0.1:8780 起 `_DashboardHTTPServer`：`GET /` 返回单页 UI（`dashboard_ui.py` 内嵌模板，无外部资源）；`GET /api/state` 重新 fetch 未读 + 分组 + enrichment（per-context 缓存 + ThreadPool，评论走 `list_comments` 分页、lesson 讨论走 `list-chat-messages` + replies、参与者名字走 participants endpoint）；`POST /api/react` 与 `POST /api/mark_read` 是唯一两条 mutation 路径；`POST /api/verify` 是只读回读端点（反应后只重拉该 context，确认 reaction 落地，供页面原地更新），无 mutation、不进审计日志。
 - 页面动作与 Circle 状态的映射：react = 反应 + 该通知 mark_as_read（「拉倒」语义）；mark_read 单条；点赞折叠组的「全部已读」由 UI 逐条循环单条请求，server 不批量。
 - 安全模型：只绑回环地址、校验 Origin、JSON Content-Type 必填；每次点击 = 用户本人的一次明确授权动作（对应「人亲手点 Publish」的本地 UI 延伸）；CLI 的 `react` 命令单独保留 dry-run-first 契约给 agent 路径。
 - Reaction 双契约并存：chat 消息用 unicode `/internal_api/reactions`；post 评论用 named 类型的 `/user_likes`。target 类型由 `VERIFIED_REACTION_KINDS` 门控，未经 live round-trip 验证的类型不显示反应按钮。

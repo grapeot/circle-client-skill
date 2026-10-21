@@ -2,6 +2,7 @@
 
 > 状态（2026-10-15 更新）：P0 已实现并通过离线测试 + live 验证；重要内容已收编进 `docs/prd.md`（V2 目标）与 `docs/rfc.md`（Dashboard V2 节 + endpoint 表）。本文档保留为设计依据。
 > 2026-10-21 更新：静态 `render`/`serve` 已退役（0.2.0），dashboard 是通知可视化的唯一交互面；下表"静态页（保留为快速只读视图，不动）"一行作废。
+> 2026-10-21 更新（0.2.1）：反应/标已读动作改为原地更新——操作后不再整页自动刷新（原 400ms 防抖刷新会让刚标已读的行立刻从页面消失）。反应成功后前端另发 `POST /api/verify`（只读，只重拉该 context）回读 reaction 是否落地，然后原地把行更新为 done 样式（半透明 + 「✓ 处理过」）；行到下一次手动刷新才从列表移除。`/api/verify` 不产生 mutation、不进审计日志。
 > 与设计的差异/遗留：①讨论区排序由用户拍板为 room → post → post_link（lesson 讨论置顶，对齐旧 render 分组）；②「全部已读」加了二次确认步（按设计）；③首刷实测 ~35s（设计预算 <15s，原因是 51 个 context 的参与者/评论分页；增量走缓存为秒级，达标）；④post 本体反应与 ⭐ unicode 未验证（chat 反应按钮的 ⭐ 与已验证的 ❤️ 走同一 endpoint，未单独往返验证）；⑤live 清单第 3 项（react+mark-read 后 fetch 消失）未单独执行——react 与 mark_as_read→fetch-diff 两半各有独立 live 证据（2026-10-15 / 2026-09-27），组合路径由离线测试覆盖；未再消费真实通知。
 > 交付物：`src/circle_client_skill/dashboard.py`、`dashboard_ui.py`、`reactions.py`，CLI `dashboard` / `react`，测试 `tests/test_dashboard.py` + `tests/test_reactions.py`。
 
@@ -102,7 +103,7 @@ GET /api/state
 
 | 页面动作 | server 做什么 | 完成语义 |
 |---|---|---|
-| 点 ❤️/👍/⭐ | POST reaction → 回读校验 → PATCH mark_as_read | 一击拉倒；卡片变 done 灰显 |
+| 点 ❤️/👍/⭐ | POST react（reaction + mark_as_read）→ POST verify（单 context 只读回读） | 一击拉倒；行原地变 done 灰显并保留，手动刷新后从列表消失（0.2.1） |
 | 点 ✓ 已读 | PATCH mark_as_read（单条） | 卡片变 done |
 | 点「全部已读」(折叠组) | 展开确认 → 逐条 PATCH（间隔小 sleep） | 组收起 |
 | 点「打开」 | 纯 `<a>` 跳 Circle（要回话/回复时用） | 已读不动（页面读 ≠ read_at，见 working.md） |

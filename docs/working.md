@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### 2026-10-21 In-place reaction update with targeted read-back (0.2.1)
+
+- 行为变化（用户拍板）：dashboard 上点反应/标已读后不再整页自动刷新——原来的 400ms 防抖刷新会重拉未读，刚标已读的行立刻从页面消失。现在行原地保留为 done 样式（半透明 + 「✓ 处理过」），到下一次手动刷新才从列表移除。
+- 新增只读端点 `POST /api/verify`：payload 与 `/api/react` 同形；复用 kind 门控与 `_locate` 约束（只能回读当前页面上看得见的那一行），只重新 enrich 目标 context（react 已失效其缓存，这是一次对 Circle 的真回读），返回该行的 `id` / `is_target` / `reactions`。无 mutation、不写 `dashboard_log.jsonl`。
+- 前端：`react()` 重写为 react → done set → verify → 把回读到的 reactions 写回 row → 本地 `render()`（零网络，非整页 reload）；verify 失败只红条提示「回读确认失败：点刷新核对」，不删行、不自动刷新。`markRead` / `markGroup` 收尾同样改为本地 `render()`。删除 `act()` / `scheduleRefresh()` 死代码。
+- 版本 0.2.0 → 0.2.1（pyproject、`__init__`、README 版本变更）。文档同步：public skill dashboard 节与本地服务边界、rfc endpoint 描述、design_dashboard 状态注记与 §7 动作表、项目 AGENTS.md dashboard 边界行。
+
 ### 2026-10-21 Retired the static render/serve workflow (0.2.0)
 
 - CLI contract 变化：移除 `render`（md/csv/html）与 `serve` 两个命令，`dashboard` 成为通知可视化的唯一交互面；「看通知」首要工作流从 `fetch → render → open index.html` 翻转为 `dashboard`。

@@ -107,34 +107,29 @@ function glyphOf(unicode) {
   catch (e) { return '🙂'; }
 }
 
-let refreshTimer = null;
-function scheduleRefresh(delay) {
-  if (refreshTimer) clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(() => { refreshTimer = null; refresh(); }, delay || 400);
-}
-async function act(path, body, okNote) {
+async function react(row, payload) {
+  const kind = row.kind === 'message' ? 'chat_room_message' : 'comment';
+  const ids = allIds(row);
+  const hasNotification = !!(row.target && ids.length);
+  const notificationId = hasNotification ? ids[0] : null;
+  spinner(true, '反应中…');
   try {
-    await api(path, { method: 'POST', body: JSON.stringify(body) });
+    await api('/api/react', { method: 'POST', body: JSON.stringify({ notification_id: notificationId, target_id: row.id, kind, ...payload }) });
     clearFail();
-    if (okNote) { okNote(); }
-    scheduleRefresh();
+    if (hasNotification) ids.forEach(id => done.add(id));
+    try {
+      const v = await api('/api/verify', { method: 'POST', body: JSON.stringify({ notification_id: notificationId, target_id: row.id, kind }) });
+      if (v && v.row) row.reactions = v.row.reactions;
+    } catch (e) {
+      clearFail(); fail('反应已发出，但回读确认失败：点刷新核对');
+    }
+    render();
   } catch (e) { fail('操作失败：' + e.message); }
   finally { spinner(false); }
 }
-function react(row, payload) {
-  const kind = row.kind === 'message' ? 'chat_room_message' : 'comment';
-  const hasNotification = !!(row.target && allIds(row).length);
-  spinner(true, '反应中…');
-  act('/api/react', {
-    notification_id: hasNotification ? allIds(row)[0] : null,
-    target_id: row.id,
-    kind: kind,
-    ...payload,
-  }, () => { if (hasNotification) allIds(row).forEach(id => done.add(id)); });
-}
 function markRead(row) {
   const ids = allIds(row); let i = 0;
-  const next = () => { if (i >= ids.length) { scheduleRefresh(); render(); return; }
+  const next = () => { if (i >= ids.length) { render(); return; }
     const id = ids[i++]; spinner(true, '标记中…');
     api('/api/mark_read', { method: 'POST', body: JSON.stringify({ notification_id: id }) })
       .catch(e => { clearFail(); fail('标记已读失败：' + e.message); })
@@ -151,7 +146,7 @@ function markGroup(group, btn) {
   }
   btn.dataset.confirm = ''; btn.classList.remove('primary');
   const ids = group.notification_ids || []; let i = 0;
-  const next = () => { if (i >= ids.length) { scheduleRefresh(); render(); return; }
+  const next = () => { if (i >= ids.length) { render(); return; }
     const id = ids[i++]; spinner(true, `已读 ${i}/${ids.length}…`);
     api('/api/mark_read', { method: 'POST', body: JSON.stringify({ notification_id: id }) })
       .catch(e => { clearFail(); fail('标记已读失败：' + e.message); })

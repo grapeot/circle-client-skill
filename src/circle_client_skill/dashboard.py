@@ -791,6 +791,50 @@ class DashboardServer:
         )
         return {"marked_read": marked_read, "target_kind": kind, "target_id": target_id}
 
+    def verify(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Read back one row after a reaction (read-only, logged nowhere).
+
+        Re-enriches just the targeted context (react already invalidated its
+        cache, so this is a fresh fetch from Circle) and returns the row's
+        current reactions. A 200 from react is not evidence the reaction
+        landed; this is the evidence.
+        """
+        notification_id = payload.get("notification_id")
+        kind = payload.get("kind")
+        target_id = payload.get("target_id")
+        if kind not in self.verified_kinds:
+            raise ActionError(f"reaction target {kind!r} 未验证，暂不开放", 409)
+        if notification_id is None:
+            if not isinstance(target_id, int):
+                raise ActionError("target_id 必须是整数")
+        elif not isinstance(notification_id, int) or not isinstance(target_id, int):
+            raise ActionError("notification_id / target_id 必须是整数")
+        with self.state_lock:
+            context = self._locate(kind, target_id, notification_id if isinstance(notification_id, int) else None)
+        key = self._cache_key_for(kind, context)
+        target_ids = {int(t["target"]["id"]) for t in context.get("targets", []) if t.get("target", {}).get("id") is not None}
+        target_ids.add(int(target_id))
+        if kind == "chat_room_message":
+            room_uuid = context["context_id"]
+            rows = self.cache.rows_for(
+                self.client, key, target_ids, lambda cl, k, t: build_room_rows(cl, room_uuid, t)
+            )
+        elif kind == "comment":
+            post_id = context["context_id"]
+            rows = self.cache.rows_for(self.client, key, target_ids, lambda cl, k, t: build_comment_rows(cl, post_id, t))
+        else:
+            raise ActionError(f"不支持的 reaction target {kind!r}", 409)
+        for row in rows:
+            if self._row_target_kind(row) == kind and int(row.get("id") or 0) == int(target_id):
+                return {
+                    "row": {
+                        "id": int(row["id"]),
+                        "is_target": int(row["id"]) in target_ids,
+                        "reactions": row.get("reactions") or [],
+                    }
+                }
+        raise ActionError("回读时该消息不在上下文里；请刷新", 404)
+
     def mark_read(self, payload: dict[str, Any]) -> dict[str, Any]:
         notification_id = payload.get("notification_id")
         if not isinstance(notification_id, int):
@@ -867,7 +911,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(payload, dict):
                 raise ValueError("body must be a JSON object")
-            result = dashboard.react(payload) if name == "react" else dashboard.mark_read(payload)
+            if name == "react":
+                result = dashboard.react(payload)
+            elif name == "verify":
+                result = dashboard.verify(payload)
+            else:
+                result = dashboard.mark_read(payload)
         except ActionError as exc:
             self._send_json({"success": False, "error": exc.message}, status=exc.status)
             return exc.status
@@ -894,7 +943,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
-        if path in ("/api/react", "/api/mark_read"):
+        if path in ("/api/react", "/api/verify", "/api/mark_read"):
             self._run_action(path.removeprefix("/api/"))
             return
         self._send_json({"success": False, "error": "Unknown action"}, status=404)
