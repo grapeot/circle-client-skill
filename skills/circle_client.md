@@ -45,7 +45,7 @@ description: >-
 .venv/bin/circle-client dashboard            # 127.0.0.1:8780，自动开浏览器；Ctrl-C 停
 ```
 
-页面把未读按三个区组织：要回应的讨论（帖子评论按 post 聚合、lesson 评论按 room 聚合，线程按时间正序、新消息高亮、带上下文）、点赞（折叠成「N 人赞了《X》」行）、其他（成员/审核/live 链接）。每条新消息的动作条：反应（❤️/👍 或 comment 的 like/love/celebrate…）+ ✓已读 + 打开原页。反应成功会自动把该通知标已读（一次点击拉倒）。线程里的非未读行也能直接加反应（不标已读），浏览旧内容时不用离开页面。
+页面把未读按三个区组织：要回应的讨论（帖子评论按 post 聚合、lesson 评论按 room 聚合，线程按时间正序、新消息高亮、带上下文）、点赞（折叠成「N 人赞了《X》」行）、其他（成员/审核/live 链接）。每条新消息的动作条：反应（❤️/👍 或 comment 的 like/love/celebrate…）+ ✓已读 + 打开原页。反应成功会自动把该通知标已读（一次点击拉倒），行不会立刻消失：反应经定向回读（`/api/verify`，只重新拉该 context 确认 reaction 真的落地）后原地更新为 done 样式（半透明 + 「✓ 处理过」），点「刷新」才从列表移除。线程里的非未读行也能直接加反应（不标已读），浏览旧内容时不用离开页面。
 加新 emoji（chat/lesson 消息）：在 gitignored `data/emotes.json` 加 `{"名字": "unicode码"}`（如 `{"clap": "1f44f"}`），刷新页面即生效；post 评论的反应类型是 Circle 固定的六种 named 类型，不可扩展。
 
 工作机制与边界：
@@ -233,7 +233,7 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 - `reset-count` 默认 dry-run；live 执行必须同时使用 `--execute --confirm RESET-COUNT`，并获得用户对当次动作的明确授权。
 - `mark-notification-read <id>` 把单条通知标记已读（`PATCH /internal_api/notifications/<id>/mark_as_read`，cookie+CSRF，200/204 均视为成功）；默认 dry-run，live 必须 `--execute --confirm MARK-NOTIFICATION-READ` 且当次授权。已读是服务端状态：`read_at` 落库后该通知从 unread fetch 中消失、`count` 下降；只读 comment 页面不会写 `read_at`，只有 inbox 里点开通知或本命令才会。
 - `react` 给 chat room 消息加 emoji 反应（`POST /internal_api/reactions`，body `{"unicode": <code>, "chat_room_message": <id>}`）；默认 dry-run，live 必须 `--execute --confirm REACT` 且当次授权。post 评论类反应（named like 类型，`POST /user_likes`）目前只在 dashboard 的页面动作里提供，CLI 暂不暴露。本工具只加反应、不 un-react；取消去 Circle 网页手动操作。
-- `dashboard` 起的本地服务只绑 127.0.0.1、校验 Origin；页面动作（react/mark_read）的每次点击是用户本人的一次明确授权动作，server 不自动批处理。全部动作追加审计日志（gitignored）。
+- `dashboard` 起的本地服务只绑 127.0.0.1、校验 Origin；页面动作（react/mark_read）的每次点击是用户本人的一次明确授权动作，server 不自动批处理。全部动作追加审计日志（gitignored）。`/api/verify` 是只读回读端点（反应后重拉单 context 确认落地），不产生 mutation、不进审计日志。
 - `reset-count` 与 mark-all-read 是不同 mutation。当前没有 mark-all-read 能力（`mark-notification-read` 是单条，不是 mark-all），不得根据内部 endpoint 名字猜测或代替实现。
 - `open-browser` 只启动可见 Chrome、注入 cookie、打开一个社区页面后断开，不发任何 mutation；输出里没有 cookie 值。端口已被占用或 profile 已被锁住时拒绝启动，绝不附着到已有浏览器。目标 URL 必须是社区 host 上的 HTTPS 地址。
 - `open-notifications` 是本地只读动作：只读 fetch artifact、只调本地 URL opener，不联网、不动 Circle 状态，也不隐式标记已读。默认 dry-run，live 需要 `--execute --confirm OPEN-NOTIFICATIONS`；只打开落在 artifact `source.host` 上的 http(s) URL。

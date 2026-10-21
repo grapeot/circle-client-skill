@@ -523,6 +523,92 @@ def test_react_invalidates_context_cache(tmp_path) -> None:
     assert message_calls() == 2
 
 
+def _lesson_message_with_reactions(reactions: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "id": 9000002,
+        "chat_room_participant_id": 5,
+        "created_at": "2026-10-15T11:00:00.000Z",
+        "rich_text_body": {
+            "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "lesson msg"}]}]},
+            "attachments": [],
+        },
+        "replies_count": 0,
+        "reactions": reactions,
+    }
+
+
+def test_verify_reads_back_reaction_after_react(tmp_path) -> None:
+    """verify re-fetches the single context (react invalidated its cache) and
+    returns the row's fresh reactions — read-back is the evidence, not the 200."""
+    message = _lesson_message_with_reactions([])
+    client = FakeClient(
+        messages=[message],
+        participants=[{"id": 5, "name": "Cara", "community_member_id": 9}],
+    )
+    client.fetch_notifications = lambda: _doc([_room_notification(id=50)])  # type: ignore[method-assign]
+
+    def create_reaction_with_side_effect(kind: str, target_id: int, unicode_code: str, *, execute: bool = False) -> dict[str, Any]:
+        assert execute is True
+        client.calls.append(("create_reaction", {"kind": kind, "id": target_id, "unicode": unicode_code}))
+        message["reactions"].append({"unicode": unicode_code, "count": 1})
+        return {"success": True, "reactions": None}
+
+    client.create_reaction = create_reaction_with_side_effect  # type: ignore[method-assign]
+    server = DashboardServer({}, port=8999, state_dir=tmp_path, client=client)
+    server.build_state()
+    server.react({"notification_id": 50, "kind": "chat_room_message", "target_id": 9000002, "unicode": "heart"})
+
+    def message_calls() -> int:
+        return sum(1 for c in client.calls if c[0] == "list_chat_messages")
+
+    before = message_calls()
+    result = server.verify({"notification_id": 50, "kind": "chat_room_message", "target_id": 9000002})
+    row = result["row"]
+    assert row["id"] == 9000002
+    assert row["is_target"] is True
+    assert row["reactions"] == [{"unicode": "2764-fe0f", "emoji": None, "count": 1}]
+    assert row["missing"] is False
+    assert message_calls() == before + 1  # a real refetch, not a stale cache hit
+
+
+def test_verify_is_read_only(tmp_path) -> None:
+    client = FakeClient(
+        messages=[_lesson_message_with_reactions([])],
+        participants=[{"id": 5, "name": "Cara", "community_member_id": 9}],
+    )
+    client.fetch_notifications = lambda: _doc([_room_notification(id=50)])  # type: ignore[method-assign]
+    server = DashboardServer({}, port=8999, state_dir=tmp_path, client=client)
+    server.build_state()
+    before = len(client.calls)
+    server.verify({"notification_id": 50, "kind": "chat_room_message", "target_id": 9000002})
+    new_calls = [name for name, _ in client.calls[before:] if name not in ("list_chat_messages", "participants")]
+    assert new_calls == []
+    assert not (tmp_path / "dashboard_log.jsonl").exists()  # read-back is not a logged action
+
+
+def test_verify_gates_unverified_kinds(tmp_path) -> None:
+    client = FakeClient()
+    client.fetch_notifications = lambda: _doc([_room_notification(id=50)])  # type: ignore[method-assign]
+    server = DashboardServer({}, port=8999, state_dir=tmp_path, client=client)
+    server.verified_kinds = ()
+    with pytest.raises(ActionError) as excinfo:
+        server.verify({"notification_id": 50, "kind": "chat_room_message", "target_id": 9000002})
+    assert excinfo.value.status == 409
+
+
+def test_verify_unknown_target_404(tmp_path) -> None:
+    client = FakeClient(
+        messages=[_lesson_message_with_reactions([])],
+        participants=[{"id": 5, "name": "Cara", "community_member_id": 9}],
+    )
+    client.fetch_notifications = lambda: _doc([_room_notification(id=50)])  # type: ignore[method-assign]
+    server = DashboardServer({}, port=8999, state_dir=tmp_path, client=client)
+    server.build_state()
+    with pytest.raises(ActionError) as excinfo:
+        server.verify({"notification_id": 50, "kind": "chat_room_message", "target_id": 123456})
+    assert excinfo.value.status == 404
+
+
 def test_server_state_persists_artifact(tmp_path) -> None:
     client = FakeClient()
     client.fetch_notifications = lambda: _doc([])  # type: ignore[method-assign]
@@ -664,6 +750,50 @@ def test_http_react_roundtrip(tmp_path) -> None:
             payload = json.loads(resp.read().decode("utf-8"))
         assert payload["success"] is True and payload["marked_read"] is True
         assert ("mark_read", {"id": 1}) in client.calls
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_http_verify_roundtrip(tmp_path) -> None:
+    from circle_client_skill.dashboard import create_dashboard_server
+
+    client = FakeClient(
+        messages=[_lesson_message_with_reactions([])],
+        participants=[{"id": 5, "name": "Cara", "community_member_id": 9}],
+    )
+    client.fetch_notifications = lambda: _doc([_room_notification(id=50)])  # type: ignore[method-assign]
+    server, url = create_dashboard_server({}, port=0, state_dir=tmp_path, timeout=5, client=client)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        dashboard = server.dashboard
+        with urllib.request.urlopen(url + "api/state") as resp:
+            state = json.loads(resp.read().decode("utf-8"))
+        assert state["success"] is True
+        body = json.dumps({"notification_id": 50, "kind": "chat_room_message", "target_id": 9000002}).encode()
+        req = urllib.request.Request(
+            url + "api/verify",
+            method="POST",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Origin": f"http://127.0.0.1:{dashboard.port}",
+            },
+        )
+        with urllib.request.urlopen(req) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        assert payload["success"] is True
+        assert payload["row"]["id"] == 9000002 and payload["row"]["is_target"] is True
+        bad = urllib.request.Request(
+            url + "api/verify",
+            method="POST",
+            data=body,
+            headers={"Content-Type": "application/json", "Origin": "http://evil.example.com"},
+        )
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            urllib.request.urlopen(bad)
+        assert excinfo.value.code == 403
     finally:
         server.shutdown()
         thread.join(timeout=5)
