@@ -567,6 +567,7 @@ def test_verify_reads_back_reaction_after_react(tmp_path) -> None:
     assert row["id"] == 9000002
     assert row["is_target"] is True
     assert row["reactions"] == [{"unicode": "2764-fe0f", "emoji": None, "count": 1}]
+    assert row["missing"] is False
     assert message_calls() == before + 1  # a real refetch, not a stale cache hit
 
 

@@ -795,9 +795,10 @@ class DashboardServer:
         """Read back one row after a reaction (read-only, logged nowhere).
 
         Re-enriches just the targeted context (react already invalidated its
-        cache, so this is a fresh fetch from Circle) and returns the row's
-        current reactions. A 200 from react is not evidence the reaction
-        landed; this is the evidence.
+        cache, so present rows are fetched fresh from Circle; rows missing
+        from the window short-circuit without extra calls) and returns the
+        row's current reactions plus its ``missing`` flag. A 200 from react
+        is not evidence the reaction landed; this is the evidence.
         """
         notification_id = payload.get("notification_id")
         kind = payload.get("kind")
@@ -831,6 +832,7 @@ class DashboardServer:
                         "id": int(row["id"]),
                         "is_target": int(row["id"]) in target_ids,
                         "reactions": row.get("reactions") or [],
+                        "missing": bool(row.get("missing")),
                     }
                 }
         raise ActionError("回读时该消息不在上下文里；请刷新", 404)
