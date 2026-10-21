@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from circle_client_skill.client import CircleClientError
 from circle_client_skill.dashboard import (
     VERIFIED_REACTION_KINDS,
     ActionError,
@@ -607,6 +608,29 @@ def test_verify_unknown_target_404(tmp_path) -> None:
     with pytest.raises(ActionError) as excinfo:
         server.verify({"notification_id": 50, "kind": "chat_room_message", "target_id": 123456})
     assert excinfo.value.status == 404
+
+
+def test_verify_error_response_is_fixed_message(tmp_path) -> None:
+    """The failure path must not surface the upstream error string, which can
+    carry a 200-char body snippet of private content (privacy boundary)."""
+    message = _lesson_message_with_reactions([])
+    client = FakeClient(
+        messages=[message],
+        participants=[{"id": 5, "name": "Cara", "community_member_id": 9}],
+    )
+    client.fetch_notifications = lambda: _doc([_room_notification(id=50)])  # type: ignore[method-assign]
+    server = DashboardServer({}, port=8999, state_dir=tmp_path, client=client)
+    server.build_state()
+    server.cache.invalidate(("room", LESSON_ROOM))  # force a real refetch
+
+    def boom(chat_room_uuid: str, **_: Any) -> dict[str, Any]:
+        raise CircleClientError("Circle returned HTTP 500 [body: 私人消息正文片段]", status_code=500)
+
+    client.list_chat_messages = boom  # type: ignore[method-assign]
+    with pytest.raises(ActionError) as excinfo:
+        server.verify({"notification_id": 50, "kind": "chat_room_message", "target_id": 9000002})
+    assert excinfo.value.status == 502
+    assert "私人消息正文片段" not in excinfo.value.message
 
 
 def test_server_state_persists_artifact(tmp_path) -> None:

@@ -233,7 +233,7 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 - `reset-count` 默认 dry-run；live 执行必须同时使用 `--execute --confirm RESET-COUNT`，并获得用户对当次动作的明确授权。
 - `mark-notification-read <id>` 把单条通知标记已读（`PATCH /internal_api/notifications/<id>/mark_as_read`，cookie+CSRF，200/204 均视为成功）；默认 dry-run，live 必须 `--execute --confirm MARK-NOTIFICATION-READ` 且当次授权。已读是服务端状态：`read_at` 落库后该通知从 unread fetch 中消失、`count` 下降；只读 comment 页面不会写 `read_at`，只有 inbox 里点开通知或本命令才会。
 - `react` 给 chat room 消息加 emoji 反应（`POST /internal_api/reactions`，body `{"unicode": <code>, "chat_room_message": <id>}`）；默认 dry-run，live 必须 `--execute --confirm REACT` 且当次授权。post 评论类反应（named like 类型，`POST /user_likes`）目前只在 dashboard 的页面动作里提供，CLI 暂不暴露。本工具只加反应、不 un-react；取消去 Circle 网页手动操作。
-- `dashboard` 起的本地服务只绑 127.0.0.1、校验 Origin；页面动作（react/mark_read）的每次点击是用户本人的一次明确授权动作，server 不自动批处理。全部动作追加审计日志（gitignored）。`/api/verify` 是只读回读端点（反应后重拉单 context 确认落地），不产生 mutation、不进审计日志。
+- `dashboard` 起的本地服务只绑 127.0.0.1、校验 Origin；页面动作（react/mark_read）的每次点击是用户本人的一次明确授权动作，server 不自动批处理。全部动作追加审计日志（gitignored）。`/api/verify` 是只读回读端点（反应后重拉单 context 确认落地），不产生 mutation、不进审计日志；失败响应是固定错误消息（不透传上游响应内容）。
 - `reset-count` 与 mark-all-read 是不同 mutation。当前没有 mark-all-read 能力（`mark-notification-read` 是单条，不是 mark-all），不得根据内部 endpoint 名字猜测或代替实现。
 - `open-browser` 只启动可见 Chrome、注入 cookie、打开一个社区页面后断开，不发任何 mutation；输出里没有 cookie 值。端口已被占用或 profile 已被锁住时拒绝启动，绝不附着到已有浏览器。目标 URL 必须是社区 host 上的 HTTPS 地址。
 - `open-notifications` 是本地只读动作：只读 fetch artifact、只调本地 URL opener，不联网、不动 Circle 状态，也不隐式标记已读。默认 dry-run，live 需要 `--execute --confirm OPEN-NOTIFICATIONS`；只打开落在 artifact `source.host` 上的 http(s) URL。

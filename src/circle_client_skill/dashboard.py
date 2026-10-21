@@ -815,16 +815,21 @@ class DashboardServer:
         key = self._cache_key_for(kind, context)
         target_ids = {int(t["target"]["id"]) for t in context.get("targets", []) if t.get("target", {}).get("id") is not None}
         target_ids.add(int(target_id))
-        if kind == "chat_room_message":
-            room_uuid = context["context_id"]
-            rows = self.cache.rows_for(
-                self.client, key, target_ids, lambda cl, k, t: build_room_rows(cl, room_uuid, t)
-            )
-        elif kind == "comment":
-            post_id = context["context_id"]
-            rows = self.cache.rows_for(self.client, key, target_ids, lambda cl, k, t: build_comment_rows(cl, post_id, t))
-        else:
-            raise ActionError(f"不支持的 reaction target {kind!r}", 409)
+        try:
+            if kind == "chat_room_message":
+                room_uuid = context["context_id"]
+                rows = self.cache.rows_for(
+                    self.client, key, target_ids, lambda cl, k, t: build_room_rows(cl, room_uuid, t)
+                )
+            elif kind == "comment":
+                post_id = context["context_id"]
+                rows = self.cache.rows_for(self.client, key, target_ids, lambda cl, k, t: build_comment_rows(cl, post_id, t))
+            else:
+                raise ActionError(f"不支持的 reaction target {kind!r}", 409)
+        except CircleClientError as exc:
+            # Upstream error strings can carry a body snippet; a fixed message
+            # keeps this read-only endpoint's response surface content-free.
+            raise ActionError("回读失败；请点刷新重试", 502) from exc
         for row in rows:
             if self._row_target_kind(row) == kind and int(row.get("id") or 0) == int(target_id):
                 return {
