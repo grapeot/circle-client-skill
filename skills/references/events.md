@@ -112,6 +112,30 @@ Save 之后打开活动页，在 **Share** 旁边的 "…" 菜单里选 **Edit e
 
 ## 推荐做法
 
+### Draft completion and reliable UI editing (verified 2026-10-21)
+
+Treat an event draft as a complete handoff, not just a title and description. Unless the user explicitly narrows the task, complete and verify these fields before handing it back:
+
+- Title, description, host, space, relevant Topic, stable descriptive slug, dates and times.
+- Location type, visibility, RSVP access groups and restriction message; hiding the location from non-attendees is a separate control from RSVP eligibility. Copy access rules only from a relevant, verified precedent. Community-specific group IDs and defaults belong in a private overlay.
+- Recording: inspect **Record this live** and read back `live_stream_room_setting_attributes.recording_enabled`. Automatic replay posting is a separate setting, `auto_post_recording_enabled`; do not infer it from recording being enabled.
+- SEO: fill **Meta title**, **Meta description**, **Open Graph title**, **Open Graph description**, and a dedicated **Open Graph cover** (1200×630). The event cover is a different field (approximately 2.8:1); do not assume it populates the social preview. Keep visible title, event cover, SEO and Open Graph wording synchronized when the title changes. Describe the approved format rather than promising unconfirmed demos or results.
+- Inspect publish notifications and reminders, report the defaults, and stop before **Publish**. A draft Save is not publication. Post-composer rules about not saving drafts should not be confused with this event-specific Save flow.
+
+Keep the human-visible Chrome open for handoff. Use `open-browser`, connect to its returned CDP endpoint, and disconnect the automation when finished; do not close the user's working window or its browser/context. Reuse the current editor state carefully: a person may have changed Topic or other fields between tool calls. Do not discard unsaved user work by navigating or reloading without checking.
+
+Observed UI traps and recovery:
+
+1. **Adjacent-month dates share the same day number.** A calendar grid headed October can contain September 27 and October 27. Match the full day button `aria-label` (weekday, month, day, year), then verify the hidden date values. Never select the first button whose text is just `27`.
+2. **Time segments are interdependent.** Editing the start can move the end; editing minutes can reset hours. Segment text alone is insufficient. Verify both final `input[type=time]` values after all edits, then verify saved UTC instants and the profile timezone. A tested recovery was start hours/minutes/meridiem, followed by end minutes/hours/meridiem; this is an observation, not a universal order or a reason to blindly repeat key presses.
+3. **Synthetic paste can append despite Select All.** Do not repeatedly paste into an uncertain selection. When available on the visible TipTap element, use its editor transaction, ensuring it emits an update. In the observed editor, `el.editor.commands.setContent(html, true)` plus `el.editor.emit('update', {editor: el.editor, transaction: el.editor.state.tr})` updated the parent form. A bare `setContent(html)` changed the visible editor but did not persist the new body on Save. Check the deployed TipTap version's emit-update signature; assigning `innerHTML` is not an editor transaction. Before saving, assert the expected opening paragraph, appended section and links each occur exactly once; verify list structure and the final paragraph. Then independently reload the saved page and repeat those checks: a correct DOM before Save does not prove persistence. If an assertion fails, fix the local editor before Save.
+4. **Hidden editor instances and dynamic IDs mislead selectors.** Scope to the active visible dialog/tab/editor. Do not hardcode generated `base-ui` IDs. An empty multiselect input is not proof that no groups are selected: chips may be sibling elements. Confirm selected labels and saved IDs. Access-group GET results are paginated in `records` with `has_next_page`.
+5. **Accessible button names may include helper text.** The Open Graph upload button can include the recommended dimensions in its accessible name; exact-name matching for only “Add Open Graph image” may fail. Inspect the live DOM and use a scoped visible locator. Do not force-click through an unexplained overlay or keep retrying a stale selector.
+6. **Upload preview is not completion.** After selecting a file, wait for the preview and enabled crop-modal **Save changes**. After clicking it, wait until the parent form shows the uploaded image/Change cover control, then click the event's **Save**. Saving the parent too early can leave `opengraph_image` null even though a local preview appeared. Do not re-upload blindly: inspect pending upload/form state first.
+7. **Save must be verified, not assumed.** Check the matching successful PATCH response and independently re-open/read the saved draft. Verify `status: draft`, empty `published_at`, UTC start/end, title, Topic, group IDs, location, recording, one-copy description, valid links, nonempty cover and SEO/OG fields. Capture a final preview and leave Chrome available to the user. Never print cookies, CSRF fields or whole form input dumps while diagnosing.
+
+Keep experiments bounded: after a failed selector or unexpected value, inspect the current DOM and stop repeating the same fill/paste sequence. Preserve a local baseline and an authoritative desired body so recovery cannot accumulate duplicate paragraphs. Uploads already create blobs; a “dry run” that uploads is not side-effect-free.
+
 1. 用 `circle_client_skill.probe`（装了 route guard 的浏览器，默认可见窗口，不是 headless）在 test space 里观察表单和默认值，截图和请求日志留在 gitignored 的 `data/`。
 2. 在浏览器里由人建草稿；如果用户明确授权一个浏览器 session 代为填写，也只放行 `POST .../events` 这一个 endpoint。
 3. 用只读 GET 回读草稿，核对 UTC 时间、`location_type`、通知开关。
