@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### 2026-10-21 Verify read-back uses the thread anchor; spinner self-terminates (0.2.3)
+
+- Code review（grok）两处 must-fix：
+  1. **anchor 缺失 + 缓存污染**：verify 回读调 `build_room_rows` 时没传 anchor，线程根在默认窗口外时回退 scan/bounded-walk 失败，目标被建成 missing 标记行（空 reactions）并写进 context 缓存；之后 `/api/state` 刷新用 `rows_for` 的 target_ids 子集命中该缓存条目，**永远不再走 anchor 真回读**。修法：抽出 `_room_anchors()` helper（`_enrich_context` 与 verify 共用同一逻辑），verify 从 `notifications_by_id` 重建通知列表取 anchor，回读参数与刷新路径完全一致，缓存条目互相兼容。新增 `test_verify_refetch_uses_thread_anchor`（窗口外线程断言 anchor 路径被走、行非 missing、verify 后 build_state 命中缓存不再重拉）。
+  2. **spinner 悬挂**：标已读去掉收尾自动刷新后，`markRead` / `markGroup` 循环结束不再有人关 spinner（原来由 `refresh()` 的 finally 关），页面停留在「已读 N/N…」。修法：两个循环收尾 `spinner(false); render(); return;`。新增 `test_page_terminates_spinner_after_mark_read` 模板级守卫（JS 无离线执行环境，行为验证靠手动 smoke）。
+- 版本 0.2.3；文档同步（README / public skill / working.md）。
+
 ### 2026-10-21 Verify failure responses use a fixed message (0.2.2)
 
 - Privacy review（gpt_6_sol）must-fix：`/api/verify` 的回读重拉若上游返回非 2xx，client 的 `CircleClientError` 消息里带 `response.text[:200]` 正文片段（凭证正则遮罩不删普通正文），`_run_action` 会把 `str(exc)` 原样放进错误 JSON——成功响应的字段白名单管不到失败分支。
