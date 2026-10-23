@@ -47,7 +47,7 @@ Location 类型：
 | In person | Location address*（必填） |
 | To be announced | 无额外字段；API 里是 `"tbd"` |
 
-Live room / Live stream 的 Visibility 决定开播时谁收到通知：Community（全社区成员）、Event attendees（只有受邀或已报名的人）、Public（全社区成员收到通知，未登录访客拿到链接也能进直播；活动页本身仍只对 space 成员可见）。
+Live room / Live stream 的 Visibility 涉及直播范围与通知受众：Community（社区范围）、Event attendees（受邀或已报名的人）、Public（全社区成员可收到开播通知，未登录访客拿到链接也能进直播；活动页本身仍只对 space 成员可见）。不要把它仅当成邮件开关；具体发送仍受通知设置等条件约束。发布邮件与 RSVP 的关系见下文。
 
 ### 时区
 
@@ -78,8 +78,26 @@ Save 之后打开活动页，在 **Share** 旁边的 "…" 菜单里选 **Edit e
 
 - 点 **Publish** 会弹确认框，提示可能发送邀请邮件。草稿状态不发任何东西。
 - 「发邮件通知 space 成员」只在**发布那一刻**触发。发布后无法再次触发这封邮件；关掉开关发布、事后想补发也不行。
-- 发布后要补发通知，只能用 space 层面的 **Email all space members** 或 **Message all space members**。这两个 UI 文案观察到了，但没有测试过实际效果。
+- 修改已发布活动的 Visibility 不会重放首次发布邮件。补发需要另外安排，不能把保存设置当成补发成功。
+- **Email all space members**、**Message all space members** 或活动菜单 **Share via broadcast** 的入口不代表免付费、已经发送或相同的通知通道。先确认实际跳转与套餐：当前 Broadcasts 与 workflow 的 **Send an email** 动作属于 Email Hub，可能需要额外订阅；不要自行激活、购买、发测试信或执行群发。DM 不是 email，系统活动通知也不是 marketing broadcast。
 - **只对 admin 可见的 secret/test space 不等于零通知。** 只要 space 里有非 admin 成员，在那里 Publish 一样会给他们发邮件。在 test space 里只建草稿是安全的；要测发布，先确认成员列表。
+
+### Announcement audience, RSVP eligibility, and membership CTA (verified 2026-10-23)
+
+These controls answer different questions; verify them separately before the human publishes:
+
+| Control | What to verify |
+| --- | --- |
+| **Basic info → Visibility** | Choose the intended community-wide or attendee-only scope. A support investigation confirmed that **Event attendees** limited the initial announcement to members already RSVP'd at publication; the publisher was excluded. This can leave no recipients even with **Send email notification to space members** enabled. |
+| **Advanced → Access group** | Sets who can RSVP, not a targeted announcement audience. Selecting eligible groups does not mean only those groups receive the publication email. Keep actual group IDs and community-specific policy in a private overlay. |
+| **Advanced → Members without access** | Verify **Restricted access message**, **Button label**, and **Button link**. When an event is intentionally promoted to the broader community, provide an approved membership CTA, e.g. `View membership` → `https://membership.example.com/`. Read back `rsvp_restriction_message`, `rsvp_cta_text`, and `rsvp_cta_url`; verify the actual membership destination rather than guessing it. |
+| Publish, confirmation, and reminder settings | Publication announces the event; confirmations and reminders serve attendees. An enabled toggle does not prove delivery or override member preferences. |
+
+For an explicitly approved membership-discovery/upsell event, **Community** visibility plus restricted RSVP groups and an appropriate non-eligible-member CTA can express broad promotion with narrower registration eligibility. This is not a universal default: a confidential attendee-only event may need **Event attendees** instead. Community-specific defaults belong in the private overlay. Verify the space audience and notification preferences as well; do not promise every community member an email.
+
+Visibility and RSVP eligibility are separate controls, so restricted RSVP alone does not prove that an ineligible member cannot open a direct live-stream URL under Community visibility. Report that boundary unless an authorized non-eligible-member test has established the desired access behavior. Do not substitute Public visibility or loosen unrelated restrictions just to obtain announcements.
+
+Before publishing, read back visibility (including the corresponding `live_stream_room_setting_attributes.access_type`), RSVP group IDs, non-member RSVP, hidden location, CTA, and notification settings. In one observed Live stream form, **Community** read back as `access_type: open` and **Event attendees** as `secret`; confirm the deployed UI mapping rather than assuming that API enum applies to every event type. After publication, retain existing registrations while investigating any missing notification; duplication/migration is a separate authorized operation with its own notification consequences.
 
 ## 浏览即有副作用
 

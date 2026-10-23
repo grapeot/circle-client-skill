@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-23 Event announcement audience and RSVP controls
+
+- Documented visibility versus registration eligibility, the attendee-only publication-email pitfall, and the separate membership CTA fields for members without access.
+- Added an explicitly chosen community-promotion pattern without making it a universal default or promising delivery or direct-stream access enforcement.
+- Corrected the resend guidance: saving visibility does not resend an announcement, and broadcast/workflow email entry points can require Email Hub. No live writes or billing activation are introduced; community-specific policy and communication records stay private.
+
 ### 2026-10-21 Reusable chat watch-diff
 
 - GET-only chat scanning, root pagination with progress/page bounds, dirty-thread
@@ -263,6 +269,8 @@
 - 用户授权的 live reset-count 先通过 dry-run，再执行 POST 并返回 HTTP 200；执行前后 badge count 均为 0，验证幂等路径且未改变通知 artifact。
 
 ## Lessons Learned
+
+- Visibility, RSVP groups, and notification toggles are not interchangeable audience filters. Record publication-time eligibility and verify saved settings independently; a membership CTA and a successful save are not proof of delivery or direct-stream access enforcement.
 
 - Circle Admin API token 与 member browser JWT 是两套不同身份模型，不应放进同一个 skill。
 - `reset notification count` 与 `mark all notifications read` 语义不同，后续必须保持为两个独立动作。
