@@ -423,6 +423,26 @@ TRACKS_JS = f"""() => {{ const v = ({VIDEOS_JS})(document)[0]; if (!v) return []
              titles: t.kind === 'chapters' && t.cues ? [...t.cues].map(c => c.text) : undefined}} }}) }}"""
 
 
+THUMBNAIL_BUTTONS = ("Add image", "Replace")  # empty slot, then a slot that already holds a custom thumbnail
+
+
+def open_thumbnail_chooser(dialog: Any) -> str:
+    """Click the Custom thumbnail button in Customize media and return its label.
+
+    The slot shows "Add image" until a custom thumbnail is set and "Replace" (next to "Remove")
+    afterwards, so a rerun on a video that already has a thumbnail must click "Replace".
+    """
+    for name in THUMBNAIL_BUTTONS:
+        button = dialog.get_by_role("button", name=name, exact=True)
+        if button.count():
+            button.first.click()
+            return name
+    raise RuntimeError(
+        "Customize media shows neither 'Add image' nor 'Replace' under Custom thumbnail; "
+        "nothing was saved"
+    )
+
+
 def open_customize_media(page: Any) -> Any:
     button = page.get_by_role("button", name="Customize media").first
     for _ in range(15):  # only rendered while the pointer is over the player
@@ -526,8 +546,9 @@ def set_media_settings(
             budget=budget, wait=page.wait_for_timeout, what="video not ready for chapters",
         ))
     if video_thumbnail:
-        # Custom thumbnail > "Add image" opens a "Choose image" dialog with its own file input
-        dialog.get_by_role("button", name="Add image").click()
+        # Custom thumbnail > "Add image" (or "Replace" once a thumbnail exists) opens a
+        # "Choose image" dialog with its own file input
+        log(f"thumbnail button: {open_thumbnail_chooser(dialog)}")
         chooser = page.get_by_role("dialog", name="Choose image")
         chooser.wait_for()
         chooser.locator("input[type=file]").set_input_files(video_thumbnail)

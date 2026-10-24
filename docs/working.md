@@ -2,6 +2,10 @@
 
 ## Changelog
 
+### 2026-10-23 Video thumbnail reruns click Replace
+
+- `lesson-media-settings` / `post-media-settings` `--video-thumbnail` failed with a 30 s timeout on any video that already had a custom thumbnail: the Custom thumbnail slot shows Add image only while empty and Replace (plus Remove) afterwards. New `open_thumbnail_chooser` clicks Add image, else Replace, else raises before anything is saved. Found while replacing thumbnails on five already-configured lessons; tests cover both labels, the preference order and the missing-button error.
+
 ### 2026-10-23 Public posts-space migration; post-media-settings; VTT escaping
 
 - New reference `skills/references/public_posts_migration.md`: covers why course lessons cannot be opened logged out, which posts spaces can; why renamed space slugs are never freed (the old slug 302s and drops the query string; Redirects only cover Website-builder pages); and how to migrate a lesson to a post by reusing `featured_media.signed_id` in a TipTap `file` node. Captions, chapters and the cover hang off the blob, so they carry over and stay shared with the lesson. The reference also covers `published_at` backfill, per-post and space-level Hide from featured areas, ~20 s pacing after an HTTP 429, staging in a Secret space and then opening it, native-video posts via `direct_uploads`, safely prepending a pointer to published lessons (backup, intercept the editor Save, restore settings fields the editor rewrote, read back), and a verification checklist.
