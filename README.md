@@ -77,7 +77,7 @@ without sending or advancing checkpoints. See [watch contract](skills/references
 
 ## 课程 lesson
 
-把一份教材搬进 Circle 课程：`course-sections` 读出含 Draft 的课程结构，`create-section` / `rename-section` / `create-lesson` 走会员会话的内部接口建 Draft，`fill-lesson` 按 lesson 清单（JSON：标题加 HTML 片段和媒体文件）在可见浏览器的 lesson 编辑器里重建正文、保存并回读，`lesson-featured-video` 和 `lesson-media-settings` 处理视频 lesson 的 featured 视频、字幕、章节和封面。写命令默认 dry-run，浏览器命令只改 Draft lesson，Publish 由人点。流程和清单格式见 `skills/references/course_lessons.md`。
+把一份教材搬进 Circle 课程：`course-sections` 读出含 Draft 的课程结构，`create-section` / `rename-section` / `create-lesson` 走会员会话的内部接口建 Draft，`fill-lesson` 按 lesson 清单（JSON：标题加 HTML 片段和媒体文件）在可见浏览器的 lesson 编辑器里重建正文、保存并回读，`lesson-featured-video` 和 `lesson-media-settings` 处理视频 lesson 的 featured 视频、字幕、章节和封面；已发布帖子的视频用 `post-media-settings` 做同样的事。写命令默认 dry-run，浏览器命令只改 Draft lesson，Publish 由人点。流程和清单格式见 `skills/references/course_lessons.md`；把免费 lesson 搬进未登录可看的 posts space 见 `skills/references/public_posts_migration.md`。
 
 ## 发帖与活动回放帖
 

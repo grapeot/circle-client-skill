@@ -315,3 +315,99 @@ def test_media_settings_seek_retry_is_bounded(monkeypatch) -> None:
         _run_media_settings(monkeypatch, ui)
     assert "click Save" not in ui.actions
     assert ui.waited_ms <= course_admin.MEDIA_READY_BUDGET_MS + 400 * 1200
+
+
+# --- post-media-settings and the transcript pre-check ---
+
+GOOD_VTT = "WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\n问答\nQ&amp;A\n"
+BAD_VTT = "WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\n问答\nQ&A\n"
+POST_URL = "https://community.example.com/c/example-videos/example-post"
+
+
+def _write(tmp_path, name: str, text: str) -> str:
+    path = tmp_path / name
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+def test_post_media_settings_dry_run_needs_no_browser(tmp_path, monkeypatch, capsys) -> None:
+    vtt = _write(tmp_path, "ok.vtt", GOOD_VTT)
+    chapters = _write(tmp_path, "ch.txt", "00:00 Intro\n01:30 Demo\n")
+    _run(["post-media-settings", "--url", POST_URL, "--vtt", vtt, "--chapters", chapters], monkeypatch)
+    out = json.loads(capsys.readouterr().out)
+    assert out["dry_run"] is True and out["post_path"] == "/c/example-videos/example-post"
+    assert out["chapter_list"] == ["00:00 Intro", "01:30 Demo"]
+
+
+def test_post_media_settings_rejects_non_post_urls(tmp_path, monkeypatch) -> None:
+    vtt = _write(tmp_path, "ok.vtt", GOOD_VTT)
+    for url in ["http://community.example.com/c/a/b", "https://community.example.com/settings/x",
+                "https://community.example.com/c/only-space"]:
+        with pytest.raises(ValueError, match="post URL"):
+            _run(["post-media-settings", "--url", url, "--vtt", vtt], monkeypatch)
+
+
+def test_post_media_settings_needs_confirmation(tmp_path, monkeypatch) -> None:
+    vtt = _write(tmp_path, "ok.vtt", GOOD_VTT)
+    with pytest.raises(ValueError, match="--confirm POST-MEDIA-SETTINGS"):
+        _run(["post-media-settings", "--url", POST_URL, "--vtt", vtt, "--execute"], monkeypatch)
+
+
+def test_post_media_settings_live_rejects_other_hosts_before_the_browser(tmp_path, monkeypatch) -> None:
+    vtt = _write(tmp_path, "ok.vtt", GOOD_VTT)
+
+    def fake_session(_args):
+        return (lambda: pytest.fail("entered the browser")), _settings(), "other.example.com"
+
+    monkeypatch.setattr(cli, "_browser_session", fake_session)
+    with pytest.raises(ValueError, match="configured community host"):
+        _run(["post-media-settings", "--url", POST_URL, "--vtt", vtt, "--execute", "--confirm",
+              "POST-MEDIA-SETTINGS"], monkeypatch)
+
+
+def test_post_path_normalizes_and_rejects() -> None:
+    assert cli._post_path(POST_URL + "/") == "/c/example-videos/example-post"
+    assert cli._post_path(POST_URL + "?utm_source=x#c1") == "/c/example-videos/example-post"
+    with pytest.raises(ValueError):
+        cli._post_path("https://community.example.com/c/example-videos/example-post/extra")
+
+
+def test_check_transcript_accepts_bom_and_rejects_non_vtt(tmp_path) -> None:
+    from circle_client_skill.course_admin import check_transcript
+
+    check_transcript(_write(tmp_path, "bom.vtt", "\ufeff" + GOOD_VTT))
+    with pytest.raises(ValueError, match="not a WebVTT file"):
+        check_transcript(_write(tmp_path, "srt.vtt", "1\n00:00:00,000 --> 00:00:01,000\nhi\n"))
+
+
+@pytest.mark.parametrize("command", ["post-media-settings", "lesson-media-settings"])
+def test_media_settings_refuse_unescaped_transcript(tmp_path, monkeypatch, command) -> None:
+    vtt = _write(tmp_path, "bad.vtt", BAD_VTT)
+    target = ["--url", POST_URL] if command == "post-media-settings" else ["-s", "9000000", "--lesson-id", "9000002"]
+    with pytest.raises(ValueError, match="unescaped &"):
+        _run([command, *target, "--vtt", vtt], monkeypatch)
+
+
+def test_set_media_settings_post_target_uses_post_page(monkeypatch, tmp_path) -> None:
+    from circle_client_skill import course_admin
+
+    ui = _FakeUI(ready_s=1070, grow_per_wait_s=0)
+    opened: list[str] = []
+    monkeypatch.setattr(course_admin, "open_editor", lambda *a, **k: opened.append("editor"))
+    monkeypatch.setattr(course_admin, "open_post", lambda page, url, **k: opened.append(f"post {url}"))
+    monkeypatch.setattr(course_admin, "open_customize_media", lambda page: opened.append("fixed hover") or ui)
+    monkeypatch.setattr(course_admin, "open_customize_media_on_player", lambda page: opened.append("player hover") or ui)
+    course_admin.set_media_settings(ui, url=POST_URL, chapters=[(0, "Intro"), (229, "Two")], target="post",
+                                    log=lambda _m: None)
+    assert opened == [f"post {POST_URL}", "player hover"]
+    assert ui.chapters_at == [229] and "click Save" in ui.actions
+
+
+def test_set_media_settings_checks_transcript_before_opening_anything(monkeypatch, tmp_path) -> None:
+    from circle_client_skill import course_admin
+
+    monkeypatch.setattr(course_admin, "open_post", lambda *a, **k: pytest.fail("opened the page"))
+    with pytest.raises(ValueError, match="unescaped &"):
+        course_admin.set_media_settings(object(), url=POST_URL, vtt=_write(tmp_path, "b.vtt", BAD_VTT), target="post")
+    with pytest.raises(ValueError, match="unknown target"):
+        course_admin.set_media_settings(object(), url=POST_URL, chapters=[(0, "a")], target="space")

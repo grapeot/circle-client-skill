@@ -141,3 +141,50 @@ ok
     assert "cue 2: non-positive duration" in problems
     assert "cue 2: starts before cue 1" in problems
     assert validate_vtt("no header") == ["missing WEBVTT header"]
+
+
+# --- escaping: Circle's Customize media Save silently fails on a bare "&" ---
+
+
+def test_escape_cue_text_escapes_bare_specials() -> None:
+    from circle_client_skill.subtitles import escape_cue_text
+
+    assert escape_cue_text("Q&A") == "Q&amp;A"
+    assert escape_cue_text("Save & Submit") == "Save &amp; Submit"
+    assert escape_cue_text("a < b > c") == "a &lt; b &gt; c"
+
+
+def test_escape_cue_text_keeps_tags_and_references_and_is_idempotent() -> None:
+    from circle_client_skill.subtitles import escape_cue_text
+
+    text = "<v Speaker>Hi</v> <i>R&D</i> &amp; &#38; <00:01:02.500>next <c.yellow>x</c>"
+    once = escape_cue_text(text)
+    assert once == "<v Speaker>Hi</v> <i>R&amp;D</i> &amp; &#38; <00:01:02.500>next <c.yellow>x</c>"
+    assert escape_cue_text(once) == once
+
+
+def test_build_bilingual_vtt_escapes_segments() -> None:
+    cues = [Cue(0.0, 2.0, "x")]
+    vtt = build_bilingual_vtt(cues, [[{"zh": "问答 Q&A", "en": "time for Q&A"}]])
+    assert "问答 Q&amp;A" in vtt and "time for Q&amp;A" in vtt
+    assert " & " not in vtt and "Q&A" not in vtt
+    assert validate_vtt(vtt, expected_count=1) == []
+
+
+def test_validate_vtt_flags_unescaped_characters() -> None:
+    from circle_client_skill.subtitles import unescaped_characters
+
+    bad = "WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nQ&A <b>ok</b>\n"
+    assert any("unescaped &" in p for p in validate_vtt(bad))
+    assert unescaped_characters("Q&amp;A <b>ok</b>") == []
+    assert unescaped_characters("1 < 2") == ["<"]
+
+
+def test_named_references_are_kept_and_forbidden_words_match_unescaped_text() -> None:
+    from circle_client_skill.subtitles import escape_cue_text, unescaped_characters
+
+    assert escape_cue_text("&quot;hi&quot; &hellip; &#X26;") == "&quot;hi&quot; &hellip; &#X26;"
+    assert unescaped_characters("&am<i>p;") == ["&"]
+    vtt = build_bilingual_vtt([Cue(0.0, 2.0, "x")], [[{"zh": "问答", "en": "open Q&A now"}]])
+    assert any("Q&A" in p for p in validate_vtt(vtt, forbidden=["Q&A"]))
+    assert validate_vtt("\ufeff" + vtt) == []

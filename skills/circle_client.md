@@ -180,11 +180,12 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 .venv/bin/circle-client fill-lesson -s 9000000 --lesson-id 9000002 --manifest lessons/01.json [--thumbnail cover.png] --cdp http://127.0.0.1:9333 --execute --confirm FILL-LESSON
 .venv/bin/circle-client lesson-featured-video -s 9000000 --lesson-id 9000002 --video intro.mp4 --execute --confirm LESSON-FEATURED-VIDEO
 .venv/bin/circle-client lesson-media-settings -s 9000000 --lesson-id 9000002 --vtt subs.vtt --chapters chapters.txt --video-thumbnail cover.png --execute --confirm LESSON-MEDIA-SETTINGS
+.venv/bin/circle-client post-media-settings --url https://community.example.com/c/example-videos/example-post --vtt subs.vtt --chapters chapters.txt --video-thumbnail cover.jpg --execute --confirm POST-MEDIA-SETTINGS
 ```
 
 `fetch` 默认在连续 100 条已读记录后停止。用户明确要求完整历史审计时才使用 `--stop-after-consecutive-read 0`。
 
-所有 mutation 命令（create-post、update-post、delete-post、reply-post、upload-image、chat-send、update-chat-message、reset-count、mark-notification-read，以及课程管理的 create-section、rename-section、create-lesson、fill-lesson、lesson-featured-video、lesson-media-settings）默认 dry-run。只给 `--room-uuid` 时 preflight 不发请求；用 `--space-id` 或 lesson id 解析 room 时会先发只读 GET。Live 执行需同时提供 `--execute --confirm <ACTION>`，且用户当次明确授权。
+所有 mutation 命令（create-post、update-post、delete-post、reply-post、upload-image、chat-send、update-chat-message、reset-count、mark-notification-read，以及课程管理的 create-section、rename-section、create-lesson、fill-lesson、lesson-featured-video、lesson-media-settings，以及帖子视频的 post-media-settings）默认 dry-run。只给 `--room-uuid` 时 preflight 不发请求；用 `--space-id` 或 lesson id 解析 room 时会先发只读 GET。Live 执行需同时提供 `--execute --confirm <ACTION>`，且用户当次明确授权。
 
 ## 课程内容与 lesson comments
 
@@ -288,6 +289,10 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 `lesson-media-settings` 要等 featured 视频处理完再跑；它中途失败时什么都没存（封面、字幕也一样），整步重跑。lesson 的 Publish 流程里没有通知学员的选项，不要让人在发布时决定通知。
 
 完整流程、清单格式、章节文件格式、每个命令背后的接口和坑、交付前核对清单见 [`references/course_lessons.md`](references/course_lessons.md)。
+
+## 把免费课程搬到公开的 posts space
+
+课程 lesson 对未登录访客永远不开放（要加入社区并报名，未登录打开 lesson URL 会被弹回首页并丢掉 query string）；开了 "Show to logged out visitors" 的 posts space 才能免登录看帖子、播视频、保留 UTM。space 改过的 slug 永不释放，所以新 space 要用新 slug。迁移做法：先建 Secret 的 posts space（通知全关、space 级 Hide from featured areas），每个 lesson 发一帖，正文第一个节点是复用 lesson `featured_media.signed_id` 的 `file` 节点，后接 lesson 的 `rich_text_body`（同为 TipTap `post` 格式），`published_at` 回填 lesson 日期；字幕、章节、封面挂在 blob 上，会一起带过来，帖子和 lesson 从此共用同一份媒体（改一边另一边跟着变，源 lesson/课程/pilot 都不能删）。写操作每帖间隔约 20 秒（连发会 429）。原生新视频走 `direct_uploads` 直传后挂进帖子，再用 `post-media-settings` 设字幕、章节、封面。WebVTT 里裸的 `&` 会让 Customize media 的 Save 静默无效，`subtitles` 模块组装时已转义，两个 media-settings 命令也会提前拒绝。旧 lesson 顶部加指路要先备份、拦截编辑器的 Save 换成「指路段落 + 原正文」并按备份还原设置字段，最后回读。完整步骤、接口、核验清单和坑见 [`references/public_posts_migration.md`](references/public_posts_migration.md)。这些都是写操作，每次都要用户明确授权；用 API 建帖是「发帖走可见浏览器」规则的唯一例外，条件（用户授权这次迁移、先落 Secret 暂存 space、由人审阅后开放、原始请求先打印作 dry-run）见该 reference。
 
 ## 活动（event）
 

@@ -20,6 +20,10 @@ deleting a chapter asks for confirmation.
 Right after a featured video upload Circle is still processing it, and the dialog preview cannot seek
 past the part that is ready (2026-10-21: "Add at 00:10" when 03:49 was wanted), so the chapter step waits
 for the player and retries each seek within a bounded budget.
+The same Customize media dialog exists on a published post's video, so ``set_media_settings`` also
+drives posts (``open_post`` + ``open_customize_media_on_player``; on a post page the button sits over
+the player, not at the lesson editor's fixed spot). A transcript containing a bare ``&``, ``<`` or ``>``
+makes the dialog's Save silently do nothing, so the transcript is checked before anything is touched.
 """
 
 from __future__ import annotations
@@ -435,6 +439,61 @@ def open_customize_media(page: Any) -> Any:
     return dialog
 
 
+def open_post(page: Any, url: str, *, timeout_ms: int = 20_000) -> None:
+    """Open a post page and wait until its video player is in the DOM (posts have no draft gate)."""
+    page.goto(url)
+    page.wait_for_load_state("domcontentloaded")
+    waited = 0
+    while not page.evaluate(f"() => ({VIDEOS_JS})(document).length"):
+        if waited >= timeout_ms:
+            raise RuntimeError("no video player on the post page (wrong URL, or the video is still transcoding?)")
+        page.wait_for_timeout(500)
+        waited += 500
+    page.wait_for_timeout(1500)
+
+
+PLAYER_BOX_JS = f"""() => {{ const v = ({VIDEOS_JS})(document)[0]; if (!v) return null;
+  v.scrollIntoView({{block: 'center'}}); const r = v.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] }}"""
+
+
+def open_customize_media_on_player(page: Any) -> Any:
+    """Like ``open_customize_media`` but hovers the player itself (post pages lay the player out differently)."""
+    box = page.evaluate(PLAYER_BOX_JS)
+    if not box:
+        raise RuntimeError("no video player to hover")
+    x, y, w, h = box
+    button = page.get_by_role("button", name="Customize media").first
+    for _ in range(15):  # only rendered while the pointer is over the player
+        page.mouse.move(x + w * 0.5, y + h * 0.4)
+        page.wait_for_timeout(300)
+        page.mouse.move(x + w * 0.8, y + h * 0.2)
+        page.wait_for_timeout(700)
+        if button.count():
+            break
+    else:
+        raise RuntimeError("Customize media button never appeared; is the session an admin or the post's author?")
+    button.click(force=True)
+    dialog = page.get_by_role("dialog", name="Customize media")
+    dialog.wait_for()
+    page.wait_for_timeout(1500)
+    return dialog
+
+
+def check_transcript(vtt: str) -> None:
+    """Refuse a transcript Circle would silently fail to save (bare ``&``, ``<`` or ``>`` in cue text)."""
+    from .subtitles import parse_vtt, unescaped_characters
+
+    text = Path(vtt).read_text(encoding="utf-8-sig")
+    if not text.lstrip().startswith("WEBVTT"):
+        raise ValueError(f"{vtt} is not a WebVTT file")
+    bad = sorted({ch for cue in parse_vtt(text) for ch in unescaped_characters(cue.text)})
+    if bad:
+        raise ValueError(
+            f"{vtt} has unescaped {' '.join(bad)} in cue text; Circle's Save would silently do nothing. "
+            "Escape them (&amp; &lt; &gt;), e.g. with circle_client_skill.subtitles.escape_cue_text"
+        )
+
+
 def set_media_settings(
     page: Any,
     *,
@@ -443,11 +502,23 @@ def set_media_settings(
     chapters: list[tuple[int, str]] | None = None,
     video_thumbnail: str | None = None,
     allow_published: bool = False,
+    target: str = "lesson",
     log: Callable[[str], None] = print,
 ) -> dict[str, Any]:
-    """Custom transcript, chapters and custom video thumbnail through Customize media; then read tracks back."""
-    open_editor(page, url, allow_published=allow_published)
-    dialog = open_customize_media(page)
+    """Custom transcript, chapters and custom video thumbnail through Customize media; then read tracks back.
+
+    ``target="lesson"`` opens the lesson editor (draft gate applies); ``target="post"`` opens a post page.
+    """
+    if target not in ("lesson", "post"):
+        raise ValueError(f"unknown target {target!r}")
+    if vtt:
+        check_transcript(vtt)
+    if target == "post":
+        open_post(page, url)
+        dialog = open_customize_media_on_player(page)
+    else:
+        open_editor(page, url, allow_published=allow_published)
+        dialog = open_customize_media(page)
     budget = WaitBudget(MEDIA_READY_BUDGET_MS)
     if chapters:  # before touching anything in the dialog, so a not-ready video costs nothing
         log(retry_until(
