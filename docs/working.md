@@ -4,7 +4,7 @@
 
 ### 2026-10-23 Video thumbnail reruns click Replace
 
-- `lesson-media-settings` / `post-media-settings` `--video-thumbnail` failed with a 30 s timeout on any video that already had a custom thumbnail: the Custom thumbnail slot shows Add image only while empty and Replace (plus Remove) afterwards. New `open_thumbnail_chooser` clicks Add image, else Replace, else raises before anything is saved. Found while replacing thumbnails on five already-configured lessons; tests cover both labels, the preference order and the missing-button error.
+- `lesson-media-settings` / `post-media-settings` `--video-thumbnail` failed with a 30 s timeout on any video that already had a custom thumbnail: the Custom thumbnail slot shows Add image only while empty and Replace (plus Remove) afterwards. New `open_thumbnail_chooser` clicks Add image, else Replace, only when the label matches exactly one button (two matches raise instead of guessing), polls briefly while the slot renders, and raises before anything is saved if neither appears. Found while replacing thumbnails on five already-configured lessons; tests cover both labels, the preference order and the missing-button error.
 
 ### 2026-10-23 Public posts-space migration; post-media-settings; VTT escaping
 

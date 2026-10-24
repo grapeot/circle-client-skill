@@ -414,37 +414,44 @@ def test_set_media_settings_checks_transcript_before_opening_anything(monkeypatc
 
 
 class _ThumbButton:
-    def __init__(self, present: bool, clicks: list[str], name: str) -> None:
-        self.present, self.clicks, self.name = present, clicks, name
-
-    first = property(lambda self: self)
+    def __init__(self, n: int, clicks: list[str], name: str) -> None:
+        self.n, self.clicks, self.name = n, clicks, name
 
     def count(self) -> int:
-        return 1 if self.present else 0
+        return self.n
 
     def click(self, **_: object) -> None:
         self.clicks.append(self.name)
 
 
 class _ThumbDialog:
-    def __init__(self, labels: set[str]) -> None:
-        self.labels, self.clicks, self.queries = labels, [], []
+    """``labels`` maps a button name to how many such buttons are rendered; ``appear_after`` delays them."""
+
+    def __init__(self, labels: dict[str, int], appear_after: int = 0) -> None:
+        self.labels, self.appear_after = labels, appear_after
+        self.clicks: list[str] = []
+        self.queries: list[tuple[str, str, bool]] = []
+        self.waits: list[int] = []
+
+    def wait(self, ms: int) -> None:
+        self.waits.append(ms)
 
     def get_by_role(self, role: str, name: str = "", exact: bool = False, **_: object) -> _ThumbButton:
         self.queries.append((role, name, exact))
-        return _ThumbButton(name in self.labels, self.clicks, name)
+        n = self.labels.get(name, 0) if len(self.waits) >= self.appear_after else 0
+        return _ThumbButton(n, self.clicks, name)
 
 
 @pytest.mark.parametrize("labels, expected", [
-    ({"Add image"}, "Add image"),  # no custom thumbnail yet
-    ({"Replace", "Remove"}, "Replace"),  # a custom thumbnail is already set (rerun)
-    ({"Add image", "Replace"}, "Add image"),  # prefer the empty-slot button when both exist
+    ({"Add image": 1}, "Add image"),  # no custom thumbnail yet
+    ({"Replace": 1, "Remove": 1}, "Replace"),  # a custom thumbnail is already set (rerun)
+    ({"Add image": 1, "Replace": 1}, "Add image"),  # prefer the empty-slot button when both exist
 ])
 def test_open_thumbnail_chooser_picks_add_or_replace(labels, expected):
     from circle_client_skill.course_admin import open_thumbnail_chooser
 
     dialog = _ThumbDialog(labels)
-    assert open_thumbnail_chooser(dialog) == expected
+    assert open_thumbnail_chooser(dialog, wait=dialog.wait) == expected
     assert dialog.clicks == [expected]
     assert all(role == "button" and exact for role, _name, exact in dialog.queries)
 
@@ -452,7 +459,24 @@ def test_open_thumbnail_chooser_picks_add_or_replace(labels, expected):
 def test_open_thumbnail_chooser_raises_without_either_button():
     from circle_client_skill.course_admin import open_thumbnail_chooser
 
-    dialog = _ThumbDialog({"Remove"})
+    dialog = _ThumbDialog({"Remove": 1})
     with pytest.raises(RuntimeError, match="neither 'Add image' nor 'Replace'"):
-        open_thumbnail_chooser(dialog)
+        open_thumbnail_chooser(dialog, wait=dialog.wait, attempts=3)
+    assert dialog.clicks == [] and len(dialog.waits) == 2  # bounded polling, no wait after the last try
+
+
+def test_open_thumbnail_chooser_refuses_ambiguous_replace():
+    from circle_client_skill.course_admin import open_thumbnail_chooser
+
+    dialog = _ThumbDialog({"Replace": 2, "Remove": 1})  # e.g. a transcript Replace as well
+    with pytest.raises(RuntimeError, match="2 'Replace' buttons"):
+        open_thumbnail_chooser(dialog, wait=dialog.wait)
     assert dialog.clicks == []
+
+
+def test_open_thumbnail_chooser_waits_for_slow_slot():
+    from circle_client_skill.course_admin import open_thumbnail_chooser
+
+    dialog = _ThumbDialog({"Replace": 1}, appear_after=2)
+    assert open_thumbnail_chooser(dialog, wait=dialog.wait) == "Replace"
+    assert dialog.waits == [500, 500] and dialog.clicks == ["Replace"]

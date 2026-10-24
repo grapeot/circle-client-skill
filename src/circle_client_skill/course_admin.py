@@ -426,17 +426,31 @@ TRACKS_JS = f"""() => {{ const v = ({VIDEOS_JS})(document)[0]; if (!v) return []
 THUMBNAIL_BUTTONS = ("Add image", "Replace")  # empty slot, then a slot that already holds a custom thumbnail
 
 
-def open_thumbnail_chooser(dialog: Any) -> str:
+def open_thumbnail_chooser(
+    dialog: Any, wait: Callable[[int], None] | None = None, attempts: int = 10, interval_ms: int = 500
+) -> str:
     """Click the Custom thumbnail button in Customize media and return its label.
 
     The slot shows "Add image" until a custom thumbnail is set and "Replace" (next to "Remove")
     afterwards, so a rerun on a video that already has a thumbnail must click "Replace".
+    A button is clicked only when it is the single match: two buttons with the same label
+    (for example another "Replace" elsewhere in the dialog) raise instead of guessing.
+    ``count()`` does not auto-wait, so poll a few times while the slot renders.
     """
-    for name in THUMBNAIL_BUTTONS:
-        button = dialog.get_by_role("button", name=name, exact=True)
-        if button.count():
-            button.first.click()
-            return name
+    for attempt in range(attempts):
+        for name in THUMBNAIL_BUTTONS:
+            button = dialog.get_by_role("button", name=name, exact=True)
+            found = button.count()
+            if found == 1:
+                button.click()
+                return name
+            if found > 1:
+                raise RuntimeError(
+                    f"Customize media shows {found} '{name}' buttons; cannot tell which one is the "
+                    "Custom thumbnail slot; nothing was saved"
+                )
+        if wait and attempt < attempts - 1:
+            wait(interval_ms)
     raise RuntimeError(
         "Customize media shows neither 'Add image' nor 'Replace' under Custom thumbnail; "
         "nothing was saved"
@@ -548,7 +562,7 @@ def set_media_settings(
     if video_thumbnail:
         # Custom thumbnail > "Add image" (or "Replace" once a thumbnail exists) opens a
         # "Choose image" dialog with its own file input
-        log(f"thumbnail button: {open_thumbnail_chooser(dialog)}")
+        log(f"thumbnail button: {open_thumbnail_chooser(dialog, wait=page.wait_for_timeout)}")
         chooser = page.get_by_role("dialog", name="Choose image")
         chooser.wait_for()
         chooser.locator("input[type=file]").set_input_files(video_thumbnail)
