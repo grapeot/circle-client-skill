@@ -12,14 +12,20 @@ The workflow (see ``skills/references/recording_posts.md``) is:
 4. ``build_bilingual_vtt`` spreads each cue's time over its segments in proportion to the
    English length, keeps neighbouring cues from overlapping and writes two-line cues
    (Chinese first, English second).
-5. ``validate_vtt`` re-parses the result and reports ordering, duration, overlap, count
-   and leftover-misspelling problems.
+5. ``validate_vtt`` re-parses the result and reports ordering, duration, overlap, count,
+   leftover-misspelling and unescaped-character problems.
+
+Cue text must escape ``&``, ``<`` and ``>`` (``&amp;``, ``&lt;``, ``&gt;``) unless they are part of
+a WebVTT tag or character reference. Browsers tolerate a bare ``&``, but Circle's Customize media
+dialog does not: with such a file attached, Save silently does nothing (observed 2026-10 with "Q&A"
+in a cue). ``build_bilingual_vtt`` escapes its input with ``escape_cue_text``.
 
 Nothing here touches the network or Circle; uploading the file is a browser step.
 """
 
 from __future__ import annotations
 
+import html
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -28,6 +34,13 @@ _TIMING = re.compile(
     r"^\s*(?P<start>(?:\d+:)?\d{1,2}:\d{2}\.\d{3})\s+-->\s+(?P<end>(?:\d+:)?\d{1,2}:\d{2}\.\d{3})"
 )
 _SPEAKER = re.compile(r"^(?P<speaker>[^:\n]{1,80}):\s+(?P<text>.*)$", re.DOTALL)
+# WebVTT cue-text markup that must survive escaping: tags (c, i, b, u, ruby, rt, v, lang, with
+# optional classes/annotation), their end tags, cue timestamps, and character references.
+_VTT_TAG = re.compile(
+    r"</?(?:c|i|b|u|ruby|rt|v|lang)(?:\.[\w-]+)*(?:\s[^<>\n]*)?>|<\d{2,}:\d{2}:\d{2}\.\d{3}>|<\d{2}:\d{2}\.\d{3}>"
+)
+# Any named, decimal or hex character reference (WebVTT accepts HTML named references such as &quot;).
+_CHAR_REF = re.compile(r"&(?:[A-Za-z][A-Za-z0-9]*|#\d+|#[xX][0-9a-fA-F]+);")
 
 
 @dataclass(frozen=True)
@@ -36,6 +49,31 @@ class Cue:
     end: float
     text: str
     speaker: str | None = None
+
+
+def escape_cue_text(text: str) -> str:
+    """Escape ``&``, ``<`` and ``>`` in cue text, keeping WebVTT tags and character references."""
+    out: list[str] = []
+    pos = 0
+    keep = sorted([m.span() for m in _VTT_TAG.finditer(text)] + [m.span() for m in _CHAR_REF.finditer(text)])
+    for start, end in keep:
+        if start < pos:
+            continue
+        out.append(_escape_plain(text[pos:start]))
+        out.append(text[start:end])
+        pos = end
+    out.append(_escape_plain(text[pos:]))
+    return "".join(out)
+
+
+def _escape_plain(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def unescaped_characters(text: str) -> list[str]:
+    """Characters in cue text that ``escape_cue_text`` would escape (empty when the text is clean)."""
+    stripped = _CHAR_REF.sub(" ", _VTT_TAG.sub(" ", text))
+    return sorted({ch for ch in stripped if ch in "&<>"})
 
 
 def parse_timestamp(value: str) -> float:
@@ -57,7 +95,7 @@ def format_timestamp(seconds: float) -> str:
 def parse_vtt(text: str, *, speakers: bool = False) -> list[Cue]:
     """Parse WebVTT cues. With ``speakers=True`` a leading ``Name: `` becomes ``speaker``."""
     cues: list[Cue] = []
-    for block in re.split(r"\n\s*\n", text.replace("\r\n", "\n").strip()):
+    for block in re.split(r"\n\s*\n", text.lstrip("\ufeff").replace("\r\n", "\n").strip()):
         lines = block.split("\n")
         for idx, line in enumerate(lines):
             match = _TIMING.match(line)
@@ -143,7 +181,8 @@ def build_bilingual_vtt(
     """Assemble a WebVTT file with one ``zh`` line above one ``en`` line per cue.
 
     ``segments[i]`` is the list of ``{"zh", "en"}`` pieces for ``cues[i]``. A cue's end is
-    pulled back to ``gap`` seconds before the next cue's start so cues never overlap.
+    pulled back to ``gap`` seconds before the next cue's start so cues never overlap. Segment text
+    is passed through ``escape_cue_text``, so a bare ``&`` such as "Q&A" is written as ``&amp;``.
     """
     if len(cues) != len(segments):
         raise ValueError(f"{len(cues)} cues but {len(segments)} segment lists")
@@ -160,8 +199,8 @@ def build_bilingual_vtt(
             lines += [
                 str(number),
                 f"{format_timestamp(start)} --> {format_timestamp(stop)}",
-                piece["zh"].strip(),
-                piece["en"].strip(),
+                escape_cue_text(piece["zh"].strip()),
+                escape_cue_text(piece["en"].strip()),
                 "",
             ]
     return "\n".join(lines)
@@ -176,7 +215,7 @@ def validate_vtt(
 ) -> list[str]:
     """Return a list of problems; an empty list means the file passed."""
     problems: list[str] = []
-    if not text.lstrip().startswith("WEBVTT"):
+    if not text.lstrip("\ufeff").lstrip().startswith("WEBVTT"):
         problems.append("missing WEBVTT header")
     cues = parse_vtt(text)
     if expected_count is not None and len(cues) != expected_count:
@@ -192,7 +231,11 @@ def validate_vtt(
                 problems.append(f"cue {idx}: overlaps cue {idx - 1}")
         if duration is not None and cue.end > duration + 1e-3:
             problems.append(f"cue {idx}: ends after video duration")
+        bad = unescaped_characters(cue.text)
+        if bad:
+            problems.append(f"cue {idx}: unescaped {' '.join(bad)} (use &amp; &lt; &gt;)")
+        plain = html.unescape(cue.text)
         for word in forbidden:
-            if word and re.search(rf"\b{re.escape(word)}\b", cue.text):
+            if word and re.search(rf"\b{re.escape(word)}\b", plain):
                 problems.append(f"cue {idx}: contains {word!r}")
     return problems

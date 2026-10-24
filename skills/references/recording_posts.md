@@ -87,7 +87,7 @@ Circle 的自动转写对英文讲座不可靠。一次实测里，它把英文�
    - 长 cue 按句子边界切成每段不超过约 90 个英文字符，每段中文不超过约 28 个字。
    - 输出和 cue 一一对应，数量不能变。
 4. **组装。** `build_bilingual_vtt(cues, segments)` 在每条 cue 原来的时间范围内按英文长度比例分配各段时间，相邻 cue 之间留 0.05 秒不重叠；每个 cue 两行，第一行中文，第二行英文。
-5. **校验。** `validate_vtt(vtt, expected_count=..., duration=..., forbidden=[<已知错误拼写>])` 返回问题列表，空列表才算通过。它查时间单调、无负时长、无重叠、cue 数正确、没有残留的错误拼写。
+5. **校验。** `validate_vtt(vtt, expected_count=..., duration=..., forbidden=[<已知错误拼写>])` 返回问题列表，空列表才算通过。它查时间单调、无负时长、无重叠、cue 数正确、没有残留的错误拼写，以及 cue 文本里没有未转义的 `&`、`<`、`>`。`build_bilingual_vtt` 会用 `escape_cue_text` 自动转义（"Q&A" 写成 `Q&amp;A`，播放器里仍显示 Q&A）；别的来源的 .vtt 要自己转义：Circle 的 Customize media 遇到裸 `&` 时点 Save 毫无反应，不发请求也不报错。
 
 ```python
 from pathlib import Path
@@ -106,6 +106,15 @@ Path("subtitles_zh_en.vtt").write_text(vtt)
 中间产物（映射后的 cue、agent 输出的 segments、最终 .vtt）都放在本地素材目录或 gitignored 的 `data/`，不进仓库。
 
 ### 4. 在对话框里上传字幕、加章节
+
+已发布帖子的视频可以直接用命令（同一个对话框，等待、seek 重试、回读都与 `lesson-media-settings` 共用）：
+
+```bash
+.venv/bin/circle-client post-media-settings --url https://community.example.com/c/example-recordings/<post-slug> \
+  --vtt subtitles_zh_en.vtt --chapters chapters.txt --video-thumbnail cover.jpg --execute --confirm POST-MEDIA-SETTINGS
+```
+
+下面是它背后的手工步骤，命令失灵时按这里排查。
 
 **上传字幕。** 打开 Enable transcription，选 Upload a custom transcript，对 `input[type=file][name="transcript.user_webvtt_file"]` 用 `set_input_files`。.vtt 文件很小，Playwright 直接传即可；只有超过 50 MB 才需要 `browser_post_composer.md` 第 6 节里的 CDP `DOM.setFileInputFiles`。
 
@@ -175,3 +184,4 @@ Save 之后刷新帖子页，从页面上的 `video.textTracks` 读回（同样�
 | `document.querySelector('video')` 找不到预览视频 | 视频在 shadow DOM 里。递归 `shadowRoot` 查找，取最宽的那个。 |
 | 章节时间不对 | Add at 取的是预览视频的播放头位置。每次先 pause 再设 `currentTime`，等一会儿，确认按钮上的 `Add at MM:SS` 是目标时间再点。 |
 | `textTracks` 里 cues 是 null | 轨道 `mode` 是 disabled。先设成 `hidden` 再读。 |
+| 上传字幕后点 Save 毫无反应，没有请求也没有报错 | .vtt 的 cue 文本里有裸 `&`（如 "Q&A"）。转义成 `&amp;`（`<`、`>` 同理）；命令会提前拒绝这种文件。 |

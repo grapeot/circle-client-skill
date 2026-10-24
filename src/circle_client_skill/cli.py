@@ -25,6 +25,7 @@ from .course_admin import (
     UploadCache,
     build_parts,
     check_section_name,
+    check_transcript,
     connect_page,
     editor_url,
     fill_lesson,
@@ -1088,6 +1089,8 @@ def cmd_lesson_media_settings(args: argparse.Namespace) -> None:
     chapters = parse_chapters(Path(args.chapters).read_text()) if args.chapters else None
     if not (args.vtt or chapters or args.video_thumbnail):
         raise ValueError("nothing to set: pass --vtt, --chapters and/or --video-thumbnail")
+    if args.vtt:
+        check_transcript(args.vtt)
     plan = {"operation": "lesson_media_settings", "space_id": args.space_id, "lesson_id": args.lesson_id,
             "vtt": args.vtt, "chapters": len(chapters or []), "video_thumbnail": args.video_thumbnail, "cdp": args.cdp}
     if not args.execute:
@@ -1100,6 +1103,38 @@ def cmd_lesson_media_settings(args: argparse.Namespace) -> None:
         result = set_media_settings(page, url=editor_url(settings.base_url, args.space_id, args.lesson_id),
                                     vtt=args.vtt, chapters=chapters, video_thumbnail=args.video_thumbnail,
                                     allow_published=args.allow_published, log=lambda m: print(m, file=sys.stderr))
+    _emit(args, {"success": True, "dry_run": False, **plan, **result})
+
+
+def _post_path(url: str) -> str:
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not re.fullmatch(r"/c/[\w-]+/[\w-]+/?", parts.path or ""):
+        raise ValueError("--url must be an https post URL like https://<community>/c/<space>/<post-slug>")
+    return parts.path.rstrip("/")
+
+
+def cmd_post_media_settings(args: argparse.Namespace) -> None:
+    _confirm(args, "POST-MEDIA-SETTINGS")
+    path = _post_path(args.url)
+    chapters = parse_chapters(Path(args.chapters).read_text()) if args.chapters else None
+    if not (args.vtt or chapters or args.video_thumbnail):
+        raise ValueError("nothing to set: pass --vtt, --chapters and/or --video-thumbnail")
+    if args.vtt:
+        check_transcript(args.vtt)
+    plan = {"operation": "post_media_settings", "post_path": path, "vtt": args.vtt,
+            "chapters": len(chapters or []), "video_thumbnail": args.video_thumbnail, "cdp": args.cdp}
+    if not args.execute:
+        _emit(args, {"success": True, "dry_run": True, **plan,
+                     "chapter_list": [f"{mmss(s)} {t}" for s, t in chapters or []]})
+        return
+    sync_playwright, settings, host = _browser_session(args)
+    if (urlsplit(args.url).hostname or "") != host:
+        raise ValueError(f"--url must be on the configured community host {host}")
+    with sync_playwright() as p:
+        _browser, page = connect_page(p, args.cdp, host)
+        result = set_media_settings(page, url=f"{settings.base_url}{path}", vtt=args.vtt, chapters=chapters,
+                                    video_thumbnail=args.video_thumbnail, target="post",
+                                    log=lambda m: print(m, file=sys.stderr))
     _emit(args, {"success": True, "dry_run": False, **plan, **result})
 
 
@@ -1171,6 +1206,16 @@ def _add_course_admin_parsers(subparsers) -> None:
     browser(p)
     live(p, "LESSON-MEDIA-SETTINGS")
     p.set_defaults(handler=cmd_lesson_media_settings)
+
+    p = subparsers.add_parser("post-media-settings",
+                              help="Custom transcript, chapters and video thumbnail of a published post's video")
+    p.add_argument("--url", required=True, help="Post URL: https://<community>/c/<space>/<post-slug>")
+    p.add_argument("--vtt", help="Custom WebVTT transcript (& < > in cue text must be escaped)")
+    p.add_argument("--chapters", help="Text file, one 'MM:SS Title' per line, first at 00:00")
+    p.add_argument("--video-thumbnail", help="Custom thumbnail (poster) image for the video")
+    p.add_argument("--cdp", default="http://127.0.0.1:9333", help="CDP endpoint of a Chrome started with open-browser")
+    live(p, "POST-MEDIA-SETTINGS")
+    p.set_defaults(handler=cmd_post_media_settings)
 
 
 def cmd_watch_diff(args: argparse.Namespace) -> None:

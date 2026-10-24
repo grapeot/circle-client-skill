@@ -2,6 +2,14 @@
 
 ## Changelog
 
+### 2026-10-23 Public posts-space migration; post-media-settings; VTT escaping
+
+- New reference `skills/references/public_posts_migration.md`: covers why course lessons cannot be opened logged out, which posts spaces can; why renamed space slugs are never freed (the old slug 302s and drops the query string; Redirects only cover Website-builder pages); and how to migrate a lesson to a post by reusing `featured_media.signed_id` in a TipTap `file` node. Captions, chapters and the cover hang off the blob, so they carry over and stay shared with the lesson. The reference also covers `published_at` backfill, per-post and space-level Hide from featured areas, ~20 s pacing after an HTTP 429, staging in a Secret space and then opening it, native-video posts via `direct_uploads`, safely prepending a pointer to published lessons (backup, intercept the editor Save, restore settings fields the editor rewrote, read back), and a verification checklist.
+- New `post-media-settings` command (dry-run by default; live needs `--execute --confirm POST-MEDIA-SETTINGS`): it drives the same Customize media flow as `lesson-media-settings` from a post page. `set_media_settings` gained `target="post"`, `open_post` and a player-centred hover.
+- Bug fix: a bare `&` in WebVTT cue text makes Circle's Customize media Save silently do nothing (no request, no error). `build_bilingual_vtt` now escapes `&`, `<` and `>` while keeping WebVTT tags and character references (`escape_cue_text`); `validate_vtt` reports unescaped characters; both media-settings commands refuse such a transcript before opening a browser (`check_transcript`).
+- Independent review fixes: BOM-prefixed VTT files are accepted (`utf-8-sig`, `validate_vtt`, `parse_vtt`); any named/decimal/hex character reference is kept (`&quot;`, `&#X26;`); forbidden-word checks run on unescaped text; the post player is scrolled into view before hovering, and a missing Customize media button raises a clear error; the doc states the API-post exception to the browser rule and the raw-request dry-run requirement.
+- Tests: escaping, idempotence, references, BOM, validation, post target routing, URL validation and normalization, the host check, the confirmation gate and the transcript pre-check. All offline.
+
 ### 2026-10-23 Event announcement audience and RSVP controls
 
 - Documented visibility versus registration eligibility, the attendee-only publication-email pitfall, and the separate membership CTA fields for members without access.
