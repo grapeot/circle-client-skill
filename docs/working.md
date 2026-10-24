@@ -2,6 +2,14 @@
 
 ## Changelog
 
+### 2026-10-24 Recurring transaction refund runbook
+
+- 未新增退款 CLI；周期性续费退款继续归入 `skills/references/paywall_subscriptions.md` 的可见浏览器手册。
+- 完成一次所有者显式授权的 Circle Transactions 周期性年付扣款全额退款实测：先绑定该行和显示金额，确认只点了一次，且发生在随后的明确授权之后。Circle 交易状态变为已退款，Stripe 对应 charge 与 refund 记录确认全额成功；原年付订阅保持有效且未触发取消，另一笔独立的一次性课程付费保持已支付未退款。
+- 因现有下次续费日原本就晚于独立课程覆盖结束，本次未移动账单日，也未调用 `change_billing_date`；不得为了对齐课程覆盖而把原本更晚的续费日提前。
+- Circle 帮助文档写明，经 Circle 发起的退款会在 payout 中退回 Circle 交易手续费，从 Stripe 后台直接退款则不退回该笔 Circle 手续费；帮助文档没有说 Stripe 处理费会退回，本次也没有核对 payout。退款回读以 Circle 交易行、订阅状态及 Stripe 的 charge 与 refund 记录为准，invoice 保持 paid 属于历史账单状态，不代表退款成败；点击确认退款后通用 dialog 定位器可能同时命中弹窗与成功提示，后续 strict locator 报错不是重试信号，不要二次点击确认或重发退款。
+- 仍未实测的范围：`change_billing_date`、部分退款、取消订阅并附带退款、自动退款通知邮件、银行账单实际到账时间，以及 Stripe 支付处理手续费是否退还。
+
 ### 2026-10-23 Video thumbnail reruns click Replace
 
 - `lesson-media-settings` / `post-media-settings` `--video-thumbnail` failed with a 30 s timeout on any video that already had a custom thumbnail: the Custom thumbnail slot shows Add image only while empty and Replace (plus Remove) afterwards. New `open_thumbnail_chooser` clicks Add image, else Replace, only when the label matches exactly one button (two matches raise instead of guessing), polls briefly while the slot renders, and raises before anything is saved if neither appears. Found while replacing thumbnails on five already-configured lessons; tests cover both labels, the preference order and the missing-button error.

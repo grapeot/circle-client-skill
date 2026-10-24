@@ -7,8 +7,8 @@ description: >-
   asks to see, review, visualize, export, or summarize their Circle notifications.
   Also routes post writes (new post, edit post, event recording posts): those go through
   a human-visible browser where the agent fills the composer and a human clicks Publish.
-  Paywall creation, trial extension, and billing-date changes are not CLI commands;
-  route them to references/paywall_subscriptions.md.
+  Paywall creation, trial extension, billing-date changes, and recurring
+  transaction refunds are not CLI commands; route them to references/paywall_subscriptions.md.
 ---
 
 # Circle Client Skill
@@ -25,7 +25,7 @@ description: >-
 - 用户没有或不想使用 Admin API、Headless API、Circle MCP。
 - 用户提供了浏览器 notification request 的 Copy as cURL，或已把它放进剪贴板。
 - 用户要发帖、改帖，或把一场活动整理成回放帖：走下文「写帖子：可见浏览器」，不走 CLI。
-- 用户要建测试 paywall、延长 trial 或改 billing date：没有对应 CLI。走「Paywall 与个人 trial 改期」。
+- 用户要建测试 paywall、延长 trial、改 billing date，或退一笔周期性续费交易：没有对应 CLI。走「Paywall 与个人 trial 改期」。
 
 ## 看通知 / 通知可视化（首要工作流）
 
@@ -310,7 +310,7 @@ CLI 没有 `create-event` / `publish-event` 一类命令，也不要为单次需
 
 ## Paywall 与个人 trial 改期
 
-本仓库没有 `paywall-*` 或 billing 命令。成员 cookie 和 CSRF 也不是 Admin API token。隔离测试 paywall、正常 checkout、延长 genuine trial、取消后归档，走人类可见浏览器，可选再调用官方 Admin API v2。已验证和仅文档的分界、以及不能照抄的请求模板，见 [`references/paywall_subscriptions.md`](references/paywall_subscriptions.md)。这份手册不授权新的 live 写操作；每次写入仍要当次明确授权。
+本仓库没有 `paywall-*`、billing 或退款命令，也不要新增。成员 cookie 和 CSRF 也不是 Admin API token。隔离测试 paywall、正常 checkout、延长 genuine trial、取消后归档，以及单笔周期性续费的交易级退款，走人类可见浏览器，可选再调用官方 Admin API v2。周期性续费退款优先走 Circle Transactions 里该笔扣款的 Refund payment，不要走取消订阅并附带退款。已验证和仅文档的分界、以及不能照抄的请求模板，见 [`references/paywall_subscriptions.md`](references/paywall_subscriptions.md)。这份手册不授权新的 live 写操作；每次写入仍要当次明确授权。
 
 ## Chat watching
 
