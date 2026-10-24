@@ -2,6 +2,11 @@
 
 ## Changelog
 
+### 2026-10-24 Authorized billing-date follow-up and DM composer
+
+- 补充单笔周期扣款全额退款后、经独立授权调用 Circle Admin API 调整账单日的实测核验记录，涵盖精确订阅绑定、Circle 续费状态与 Stripe `trialing` / `trial_end` 对齐、零元草稿调整账单及非零点目标时间戳；未新增财务写入 CLI。
+- 同步新增可见浏览器私信 TipTap 编辑器逐行输入（`keyboard.insert_text` 配合 `Shift+Enter`）与发送后回读机制，并补充交易列表先展开 `Filters` 再执行邮箱检索的说明。业务文案、内部操作顺序与客户证据留在私有层，公开文档仅包含通用机制与合成示例。
+
 ### 2026-10-24 Recurring transaction refund runbook
 
 - 未新增退款 CLI；周期性续费退款继续归入 `skills/references/paywall_subscriptions.md` 的可见浏览器手册。

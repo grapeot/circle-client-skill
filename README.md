@@ -73,7 +73,7 @@ without sending or advancing checkpoints. See [watch contract](skills/references
 
 ## Paywall 与 trial 改期
 
-没有 paywall、billing 或退款 CLI。建隔离测试 paywall、正常 checkout、延长 genuine trial、取消并归档，以及在 Circle Transactions 里对单笔周期性年付扣款做全额退款并保留订阅，走可见浏览器和可选的官方 Admin API。手册在 `skills/references/paywall_subscriptions.md`。成员 session 不能代替 Admin token。交易级全额退款并保留年付订阅已实测一次；`change_billing_date`、部分退款、取消并附带退款和到期非零扣款仍不在已验证范围内。
+没有 paywall、billing 或退款 CLI。建隔离测试 paywall、正常 checkout、延长 genuine trial、取消并归档，以及在 Circle Transactions 里对单笔周期性年付扣款做全额退款并保留订阅，走可见浏览器和可选的官方 Admin API。手册在 `skills/references/paywall_subscriptions.md`。成员 session 不能代替 Admin token。交易级全额退款保留年付订阅，以及退款后经独立授权的 `change_billing_date`，均已有有限场景实测。文档同步了 Circle/Stripe 状态核验、私信编辑器逐行输入与回读，以及交易列表先展开筛选面板的注意事项；部分退款、取消并附带退款和到期非零扣款仍不在已验证范围内。
 
 ## 课程 lesson
 

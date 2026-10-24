@@ -45,6 +45,12 @@ send = pg.query_selector("button[aria-label='Send message']")
 
 ## 回读核验（CLI 或窗口）
 
+### New direct-message composer mechanics
+
+When composing a new direct message in a visible browser session, search by the member's display name and inspect the full email address in the dropdown results before selecting the recipient. Keep each recipient's conversation in its own dedicated visible page or window, and bring that page to the foreground before interacting with the composer. In this TipTap-based editor, passing a multiline string through a single `fill` or `insert_text` call was observed to clear the editor state; typing the message line by line with `keyboard.insert_text` and inserting line breaks via `Shift+Enter` avoided the reset. This is an observed behavior of this composer, not a universal prohibition on multiline input.
+
+Before sending, read back the complete editor text to confirm no lines were truncated or cleared. Avoid a bare `Enter` while focused in the composer because it can submit the message. After an explicit, owner-authorized single click on Send, verify delivery by reading back the exact recipient identity, the created message ID, and the message body. If the UI or automation reports a post-click error or timeout, read back the conversation state before considering any resend.
+
 判断消息是否真的落到 thread 上，只看回读结果，不看发送命令的返回值：
 
 ```bash
