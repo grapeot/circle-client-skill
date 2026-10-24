@@ -183,6 +183,8 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 .venv/bin/circle-client post-media-settings --url https://community.example.com/c/example-videos/example-post --vtt subs.vtt --chapters chapters.txt --video-thumbnail cover.jpg --execute --confirm POST-MEDIA-SETTINGS
 ```
 
+`--video-thumbnail` 可以重跑：Custom thumbnail 槽位为空时按钮是 Add image，已有自定义封面时变成 Replace（旁边是 Remove），两个命令都会自动选对；两个都找不到时直接报错，不保存任何改动。
+
 `fetch` 默认在连续 100 条已读记录后停止。用户明确要求完整历史审计时才使用 `--stop-after-consecutive-read 0`。
 
 所有 mutation 命令（create-post、update-post、delete-post、reply-post、upload-image、chat-send、update-chat-message、reset-count、mark-notification-read，以及课程管理的 create-section、rename-section、create-lesson、fill-lesson、lesson-featured-video、lesson-media-settings，以及帖子视频的 post-media-settings）默认 dry-run。只给 `--room-uuid` 时 preflight 不发请求；用 `--space-id` 或 lesson id 解析 room 时会先发只读 GET。Live 执行需同时提供 `--execute --confirm <ACTION>`，且用户当次明确授权。
