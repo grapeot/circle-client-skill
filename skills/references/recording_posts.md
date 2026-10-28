@@ -63,12 +63,14 @@
 
 ### 1. 入口：Customize media 对话框
 
-在帖子页把鼠标移到视频上，右上角出现一个 `aria-label="Customize media"` 的按钮，点开是同名对话框，有 Edit / Analytics 两个 tab。Edit tab 里：
+先将目标视频滚动到视口内，再把鼠标移到视频上，右上角出现一个 `aria-label="Customize media"` 的按钮，点开是同名对话框，有 Edit / Analytics 两个 tab。自动回放可能就在原活动页，无需另建回放帖；定位及 chat/Q&A 导出见 [`live_replay_exports.md`](live_replay_exports.md)。Edit tab 里：
 
 - **Custom thumbnail**：上传封面帧。
 - **Settings**：Make downloadable、Enable transcription 两个开关。打开转写后下面有两个 radio：Auto-generated transcript（`value=ai`，旁边有 Download .vtt）和 Upload a custom transcript（`value=user`，选中后出现 Upload .vtt，对应 `input[type=file][name="transcript.user_webvtt_file"]`，`accept=.vtt`）。
 - 右侧是视频预览和 **Chapters** 区。
 - 底部 **Save**。保存成功会出现 toast "Video settings saved successfully"。
+
+toast 文案可能变化。Save 可能已发出时，先回读设置与播放器轨道，再决定是否重试，不因等不到精确 toast 而再次保存。已有精校 SRT 时，上传前转为 WebVTT（时间戳毫秒分隔符改为 `.`、加 `WEBVTT` 头、转义 cue 文本），并验证转换前后的文本、cue 数与起止时间一致；不因转换另行翻译或润色。
 
 定位对话框用 `page.get_by_role("dialog", name="Customize media")`。不要用 `[role=dialog]`：播放器内部的 media-error-dialog 也带这个 role，会匹配到错的节点。
 
@@ -120,17 +122,17 @@ Path("subtitles_zh_en.vtt").write_text(vtt)
 
 **加章节。** Chapters 区第一次点 **Add chapter** 会在 00:00 生成第一行；之后的按钮文字是 **Add at MM:SS**，时间取预览视频的播放头位置。所以每加一个章节都是：把预览视频暂停并 seek 到章节时间 → 点 Add at → 在 `input[name=title]` 填标题 → 回车确认。章节标题和帖子正文里的观看导航保持一致。
 
-预览视频在 shadow DOM 里，`document.querySelector('video')` 找不到，要递归 `shadowRoot` 查找；页面上可能有多个 video，对话框里的预览是最宽的那个：
+预览视频可能在 shadow DOM 里，需递归 `shadowRoot` 查找。将查找范围限定在 Customize media 对话框，避免 seek 到正文里另一个播放器；在该对话框内取最宽的 video：
 
 ```js
-// page.evaluate(SEEK, seconds)
-(s) => {
+// dlg.evaluate(SEEK, seconds)
+(dialog, s) => {
   const vs = [];
   const walk = r => r.querySelectorAll('*').forEach(e => {
     if (e.tagName === 'VIDEO') vs.push(e);
     if (e.shadowRoot) walk(e.shadowRoot);
   });
-  walk(document);
+  walk(dialog);
   const v = vs.sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
   v.pause();
   v.currentTime = s;
@@ -145,7 +147,7 @@ first = dlg.locator("input[name=title]").last
 first.fill(chapters[0][1])
 first.press("Enter")
 for seconds, title in chapters[1:]:
-    page.evaluate(SEEK, seconds)
+    dlg.evaluate(SEEK, seconds)
     page.wait_for_timeout(1000)
     dlg.locator('button:has-text("Add at")').first.click()
     box = dlg.locator("input[name=title]").last
@@ -155,12 +157,15 @@ for seconds, title in chapters[1:]:
 
 每加一个章节，打印一下按钮上的 `Add at MM:SS`，确认 seek 生效了再继续。全部填完后核对 Chapters 区的文字，再点 Save，等 toast "Video settings saved successfully"。
 
+超过一小时的 Add at 可继续用累计分钟（如 `82:30`），不能假定三段式小时格式；解析为总秒数后核对。保存后按下节回读，toast 超时不作为重复保存的理由。
+
 ### 5. 回读验证
 
 Save 之后刷新帖子页，从页面上的 `video.textTracks` 读回（同样要递归 shadow DOM 找到 video）：
 
 - **字幕轨**：`kind` 为 captions 的轨（实测 label 是 "Default"，language 是 en），cue 数等于上传的 cue 数。轨道 `mode` 是 disabled 时浏览器不暴露 `cues`（为 null），读之前先设成 `hidden`。
 - **章节轨**：`kind` 为 chapters 的轨，cue 数和标题与章节表一致。
+- **逐条对账**：全部字幕的解码后文本、起止时间与上传稿一致，章节起点和标题与章节表一致；接口的 `selected_file=user` 或一张截图不足以替代轨道回读。
 - **时间对齐**：seek 到几个时间点（尤其是剪辑点之后），读 `activeCues` 的文本，和原声对照。
 - **截图**：看字幕渲染是不是双行、中文在上英文在下，进度条上是否出现章节分段。
 
