@@ -7,6 +7,9 @@ description: >-
   asks to see, review, visualize, export, or summarize their Circle notifications.
   Also routes post writes (new post, edit post, event recording posts): those go through
   a human-visible browser where the agent fills the composer and a human clicks Publish.
+  For Circle Live replay discovery, chat/Q&A exports, and cleaned attachments on an
+  existing event, load references/live_replay_exports.md; an explicitly authorized
+  published-event edit may use Save in the visible browser, followed by readback.
   Paywall creation, trial extension, billing-date changes, and recurring
   transaction refunds are not CLI commands; route them to references/paywall_subscriptions.md.
 ---
@@ -25,6 +28,7 @@ description: >-
 - 用户没有或不想使用 Admin API、Headless API、Circle MCP。
 - 用户提供了浏览器 notification request 的 Copy as cURL，或已把它放进剪贴板。
 - 用户要发帖、改帖，或把一场活动整理成回放帖：走下文「写帖子：可见浏览器」，不走 CLI。
+- 用户要找 Circle Live 回放、导出 chat/Q&A，或把去邮箱的聊天记录附到现有活动：走 [`references/live_replay_exports.md`](references/live_replay_exports.md)。
 - 用户要建测试 paywall、延长 trial、改 billing date，或退一笔周期性续费交易：没有对应 CLI。走「Paywall 与个人 trial 改期」。
 
 ## 看通知 / 通知可视化（首要工作流）
@@ -300,9 +304,11 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 
 **原则：本 skill 里与活动相关的脚本只用于 probe（观察表单、默认值、回读状态）。活动的写操作（创建、编辑、发布）走浏览器 UI，由人操作或由用户明确授权的浏览器 session 操作，不通过 CLI/API 命令。Publish 永远由人亲手点。** 通知类命令照旧走 CLI。往真实社区 space 写数据需要用户在主会话里明确授权；转述给 sub-agent 的授权可能被 agent 权限系统拦下，先在 test space 里试。
 
-CLI 没有 `create-event` / `publish-event` 一类命令，也不要为单次需求临时写一个。几个最容易踩的事实：Save 只建草稿（`status` 写死 `"draft"`）；发布邮件、确认邮件、提醒邮件的开关只在草稿编辑页里，默认全开；发布邮件只在 Publish 那一刻发，之后无法重发；secret test space 里有非 admin 成员时，Publish 一样会发通知；表单时间按成员资料时区解释。
+CLI 没有 `create-event` / `publish-event` 一类命令，也不要为单次需求临时写一个。几个最容易踩的事实：**Create event 对话框**的 Save 只建草稿（`status` 写死 `"draft"`），已有已发布活动的 Save 则会更新该活动；发布邮件、确认邮件、提醒邮件的开关只在草稿编辑页里，默认全开；发布邮件只在 Publish 那一刻发，之后无法重发；secret test space 里有非 admin 成员时，Publish 一样会发通知；表单时间按成员资料时区解释。
 
 完整的字段、tab、通知默认值、副作用和 endpoint 见 [`references/events.md`](references/events.md)。
+
+直播回放可能直接挂在原活动页。Live Dashboard 的 chat/Q&A 下载会经邮件发送 ZIP，不能按普通浏览器下载等待或因超时重复触发；其中聊天导出虽是 GET，仍会发邮件。原件归档、去邮箱共享稿、活动正文附件上传及保存后下载 hash 回读，见 [`references/live_replay_exports.md`](references/live_replay_exports.md)。已有活动的 Save 仅在用户当次明确授权修改后执行，Publish 仍由人点。
 
 ## Post moderation（管理员会话）
 

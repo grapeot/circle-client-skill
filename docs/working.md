@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-28 Live replay exports and cleaned event attachments
+
+- Added `skills/references/live_replay_exports.md` and root/event/replay routing: original-event replay discovery, emailed ZIP exports, bounded root/reply pagination and multiset reconciliation, and separate private originals versus authorized email-free sharing copies.
+- Recorded observed upload pitfalls: Circle's own Attach files dialog, file-node identity versus inline attachment metadata, multipart completion under a narrow route guard, and visible-browser Save for an explicitly authorized published-event edit.
+- Documented the email side effect of a GET export, readback before retrying a missing toast, original body/settings preservation, and downloaded-byte SHA-256 verification. Corrected the media seek example to stay inside Customize media and added SRT/VTT and long-duration cue checks. No runtime commands or live artifacts are added.
+
 ### 2026-10-24 Authorized billing-date follow-up and DM composer
 
 - 补充单笔周期扣款全额退款后、经独立授权调用 Circle Admin API 调整账单日的实测核验记录，涵盖精确订阅绑定、Circle 续费状态与 Stripe `trialing` / `trial_end` 对齐、零元草稿调整账单及非零点目标时间戳；未新增财务写入 CLI。
