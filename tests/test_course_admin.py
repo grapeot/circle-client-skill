@@ -52,16 +52,34 @@ def test_load_manifest_rejects_bad_items(tmp_path, items, message) -> None:
         load_manifest(_manifest(tmp_path, items))
 
 
-@pytest.mark.parametrize("href", ["assets/ch05/demo.py", "../assets/x.md", "/c/ai/x", ""])
-def test_load_manifest_rejects_relative_links(tmp_path, href) -> None:
+@pytest.mark.parametrize("anchor", [
+    '<a href="assets/ch05/demo.py">demo</a>',
+    '<a href="../assets/x.md">x</a>',
+    '<a href="/c/ai/x">x</a>',
+    '<a href="">x</a>',
+    "<A HREF=assets/x.py>unquoted</A>",
+    "<a href='it\"s.py'>quotes</a>",
+])
+def test_load_manifest_rejects_relative_links(tmp_path, anchor) -> None:
     with pytest.raises(ManifestError, match="relative link"):
-        load_manifest(_manifest(tmp_path, [{"html": f'<p><a href="{href}">demo</a></p>'}]))
+        load_manifest(_manifest(tmp_path, [{"html": f"<p>{anchor}</p>"}]))
 
 
 def test_load_manifest_accepts_absolute_links(tmp_path) -> None:
     html = ('<p><a href="https://assets-v2.circle.so/abc">demo.py</a> <a href="mailto:a@b.c">m</a>'
             ' <a href="#top">t</a></p>')
     assert load_manifest(_manifest(tmp_path, [{"html": html}]))["items"][0]["html"] == html
+
+
+@pytest.mark.parametrize("html", [
+    # Python-Markdown entity-encodes email autolinks: <a@b.com>
+    '<p><a href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;&#97;&#64;&#98;&#46;&#99;&#111;&#109;">a@b.com</a></p>',
+    # an HTML sample inside code is escaped text, not a link
+    '<pre><code>&lt;a href="assets/x"&gt;demo&lt;/a&gt;</code></pre>',
+    '<p>set href="foo" in the tag</p>',
+])
+def test_load_manifest_ignores_non_links(tmp_path, html) -> None:
+    load_manifest(_manifest(tmp_path, [{"html": html}]))
 
 
 def test_load_manifest_requires_title(tmp_path) -> None:

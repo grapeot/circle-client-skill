@@ -36,18 +36,38 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
 MAX_SECTION_NAME = 100
 SAVE_SETTLE_MS = 2500
 EDITOR_JS = "[...document.querySelectorAll('.ProseMirror')].find(e => e.editor).editor"
-HREF = re.compile(r"""href\s*=\s*["']([^"']*)["']""", re.I)
 ABSOLUTE_HREF = ("http://", "https://", "mailto:", "#")
 
 
 class ManifestError(ValueError):
     pass
+
+
+class _LinkCollector(HTMLParser):
+    """hrefs of real ``<a>`` tags, entities decoded; escaped tags inside code samples are text."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "a":
+            self.hrefs += [v or "" for k, v in attrs if k == "href"]
+
+
+def relative_links(html: str) -> list[str]:
+    """Links a lesson cannot resolve: anything not ``http(s)://``, ``mailto:`` or ``#anchor``."""
+    parser = _LinkCollector()
+    parser.feed(html)
+    parser.close()
+    return [h for h in parser.hrefs if not h.strip().lower().startswith(ABSOLUTE_HREF)]
 
 
 # ---------------------------------------------------------------- manifests and nodes
@@ -73,10 +93,7 @@ def load_manifest(path: str | Path) -> dict[str, Any]:
         if "html" in item:
             if not isinstance(item["html"], str):
                 raise ManifestError(f"item {i}: 'html' must be a string")
-            relative = [
-                h for h in HREF.findall(item["html"])
-                if not h.strip().lower().startswith(ABSOLUTE_HREF)
-            ]
+            relative = relative_links(item["html"])
             if relative:
                 raise ManifestError(
                     f"item {i}: relative link(s) {relative}; a lesson cannot resolve them. "
