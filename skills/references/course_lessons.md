@@ -40,6 +40,8 @@ id、slug、域名都是占位符（`community.example.com`、course space `9000
 
 `media` 相对清单文件。`html` 只能用编辑器支持的结构：段落、标题、列表、引用、代码块（`<pre><code>`）、分隔线、链接、加粗、斜体、删除线、下划线、高亮。**编辑器没有表格、行内代码 mark 和公式**，转换时处理掉：表格截图成图片（从渲染好的 HTML 版截，中英各一份），行内代码变普通文本，公式改写成一行文字或截图。图片 alt 想保留时，在图后加一行斜体图注。竖图（手机截图）标 `portrait`，显示为半宽。
 
+**正文里的链接一律写绝对 URL。** 教材里常见 `[demo.py](../assets/ch05/demo.py)` 这种相对路径，在本地 HTML 版能点开，搬进 lesson 后浏览器会按 lesson 页面地址解析它（Circle 还会把 `../` 吃掉，存成 `assets/ch05/demo.py`），学员点开是 404。2026-10-29 学员报告过一次：一个已发布附加模块的中英两门课里，8 个 lesson 的 6 个附件链接全挂了。做法：转换脚本先把每个相对链接指向的文件（脚本、报告、原始输出）用 direct upload 传上去（和图片同一个接口和缓存，`UploadCache` + `client.upload_image`），把 href 换成返回的 `https://assets-v2.circle.so/...`。这个地址不用登录就能访问，下载时保留原文件名；指向 GitHub 等公开地址的链接保持原样。`load_manifest` 遇到相对 href（`http(s)://`、`mailto:`、`#` 以外的）会直接报错，dry-run 阶段就能拦下来。
+
 转完先在本地把清单渲染成预览页通读一遍，再碰 Circle。
 
 ### 3. 建 section 和 lesson（CLI）
@@ -82,6 +84,7 @@ section 名最长 100 个字符，命令在 dry-run 时就会检查。新 sectio
 
 - `course-sections`：新 section 的位置、lesson 数量、每个 lesson 都是 `draft`。
 - 每个 `fill-lesson` 的输出都是 `saved`、`title_ok`、`body_ok`、`draft`。
+- 正文里没有相对链接：遍历回读的 `rich_text_body`，所有 link mark 的 href 都是 `https://`（或 `mailto:`、`#`），抽一两个在未登录状态下能打开。
 - 视频 lesson：`course-lesson` 的 `featured_media.duration` 等于本地视频时长；`lesson-media-settings` 读回的字幕条数、章节标题对。
 - 在后台用 Preview（View as student）抽看一两个 lesson：多语言分隔、表格图、代码块、正文视频、视频封面。
 - 学员视角的 `course-lessons` 里看不到新 section。
@@ -138,6 +141,7 @@ POST /internal_api/direct_uploads + S3 PUT                           ← upload-
 | `course-lessons` 里看不到刚建的 section | 成员接口不返回空的或全是 Draft 的 section。用 `course-sections`。 |
 | Save 返回 200，刷新后正文是旧的 | 正文改完太快点了 Save。`fill-lesson` 已经等待并检查请求体；手工操作时也要等几秒。 |
 | 回读比填入少一两个节点 | 首尾空段落被丢掉，正常。 |
+| 学员点正文里的链接 404，地址是 `.../lessons/<id>/assets/...` | 清单里写了相对路径。附件先 direct upload，href 换成返回的绝对 URL；`load_manifest` 现在会拒收相对链接。已发布的 lesson 改完要用 `--allow-published` 重跑 `fill-lesson`。 |
 | 教材里的表格、行内代码、公式不见了或变形 | 编辑器没有这些节点。在清单转换阶段处理。 |
 | 设了缩略图，页面的 Save 点不到 | 裁剪对话框还开着。点它的 Save changes。 |
 | `Customize media` 按钮找不到 | 只在悬停时渲染。 |

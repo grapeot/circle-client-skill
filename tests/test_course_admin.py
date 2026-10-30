@@ -52,6 +52,18 @@ def test_load_manifest_rejects_bad_items(tmp_path, items, message) -> None:
         load_manifest(_manifest(tmp_path, items))
 
 
+@pytest.mark.parametrize("href", ["assets/ch05/demo.py", "../assets/x.md", "/c/ai/x", ""])
+def test_load_manifest_rejects_relative_links(tmp_path, href) -> None:
+    with pytest.raises(ManifestError, match="relative link"):
+        load_manifest(_manifest(tmp_path, [{"html": f'<p><a href="{href}">demo</a></p>'}]))
+
+
+def test_load_manifest_accepts_absolute_links(tmp_path) -> None:
+    html = ('<p><a href="https://assets-v2.circle.so/abc">demo.py</a> <a href="mailto:a@b.c">m</a>'
+            ' <a href="#top">t</a></p>')
+    assert load_manifest(_manifest(tmp_path, [{"html": html}]))["items"][0]["html"] == html
+
+
 def test_load_manifest_requires_title(tmp_path) -> None:
     with pytest.raises(ManifestError, match="title"):
         load_manifest(_manifest(tmp_path, [], title=" "))
