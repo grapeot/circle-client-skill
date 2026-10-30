@@ -5,8 +5,11 @@ The admin API calls (list sections with drafts, create/rename a section, create 
 
 - A lesson manifest is a JSON file ``{"title": str, "items": [...]}`` where each item is either
   ``{"html": "<p>...</p>"}`` or ``{"media": "<path>", "kind": "image" | "video", "portrait": bool}``.
-  Media paths are relative to the manifest. The converter that produces manifests (Markdown, tables to
-  images, ...) belongs to the caller; this module only consumes the contract.
+  Media paths are relative to the manifest. Links inside ``html`` must be absolute (``https://``,
+  ``mailto:`` or ``#anchor``): a lesson resolves a relative href against its own URL, so
+  ``assets/demo.py`` 404s for every student (2026-10-29). Upload the linked file first and link to the
+  URL the upload returns. The converter that produces manifests (Markdown, tables to images, ...)
+  belongs to the caller; this module only consumes the contract.
 - Media are uploaded once through the direct-upload API and cached by content hash, then turned into
   tiptap ``image`` / ``file`` nodes.
 - The browser steps run against a human-visible Chrome (``open-browser``) over CDP. Each step refuses to
@@ -33,16 +36,38 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
 MAX_SECTION_NAME = 100
 SAVE_SETTLE_MS = 2500
 EDITOR_JS = "[...document.querySelectorAll('.ProseMirror')].find(e => e.editor).editor"
+ABSOLUTE_HREF = ("http://", "https://", "mailto:", "#")
 
 
 class ManifestError(ValueError):
     pass
+
+
+class _LinkCollector(HTMLParser):
+    """hrefs of real ``<a>`` tags, entities decoded; escaped tags inside code samples are text."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "a":
+            self.hrefs += [v or "" for k, v in attrs if k == "href"]
+
+
+def relative_links(html: str) -> list[str]:
+    """Links a lesson cannot resolve: anything not ``http(s)://``, ``mailto:`` or ``#anchor``."""
+    parser = _LinkCollector()
+    parser.feed(html)
+    parser.close()
+    return [h for h in parser.hrefs if not h.strip().lower().startswith(ABSOLUTE_HREF)]
 
 
 # ---------------------------------------------------------------- manifests and nodes
@@ -68,6 +93,12 @@ def load_manifest(path: str | Path) -> dict[str, Any]:
         if "html" in item:
             if not isinstance(item["html"], str):
                 raise ManifestError(f"item {i}: 'html' must be a string")
+            relative = relative_links(item["html"])
+            if relative:
+                raise ManifestError(
+                    f"item {i}: relative link(s) {relative}; a lesson cannot resolve them. "
+                    "Upload the file and link to its absolute URL"
+                )
             out.append({"html": item["html"]})
             continue
         kind = item.get("kind")

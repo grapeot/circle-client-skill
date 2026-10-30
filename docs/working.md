@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### 2026-10-29 Lesson manifests reject relative links
+
+- A student reported a 404 on a download link in a published lesson. The manifest HTML carried a relative href (`../assets/ch05/demo.py`); Circle stored it as `assets/ch05/demo.py` and the browser resolved it against the lesson URL. Eight published lessons in two course spaces had the same problem.
+- `load_manifest` now rejects any `<a href>` that is not `http(s)://`, `mailto:` or `#anchor`, so `fill-lesson` (and `create-lesson --manifest`) stop at dry-run instead of saving a broken link. Links are read with `html.parser`, so entity-encoded email autolinks pass and escaped `<a href>` samples inside code are not treated as links. The fix for callers: upload the linked file through `direct_uploads` (`UploadCache` + `client.upload_image`, same cache as lesson media) and link to the returned `https://assets-v2.circle.so/...` URL, which opens logged out and downloads under the original filename.
+- `course_lessons.md`: the rule in step 2, a delivery-check item and a pitfall row. Tests cover rejected relative forms (including unquoted and uppercase attributes), accepted absolute ones, encoded email links and code samples. Offline only.
+- Known gap: `client.upload_image` falls back to `image/png` when `mimetypes` cannot guess (`.ipynb`, `.yaml`, `.toml`, `.jsonl`); check the content type before linking such attachments.
+
 ### 2026-10-28 Live replay exports and cleaned event attachments
 
 - Added `skills/references/live_replay_exports.md` and root/event/replay routing: original-event replay discovery, emailed ZIP exports, bounded root/reply pagination and multiset reconciliation, and separate private originals versus authorized email-free sharing copies.
