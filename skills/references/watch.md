@@ -14,7 +14,7 @@ Edits/deletes are not alerts. Output includes plain text and space/message URLs.
 
 A missing checkpoint establishes a silent baseline. Corrupt or identity-mismatched
 state fails closed. Root and reply pagination are bounded to 100 progressing pages;
-incomplete or non-progressing scans fail closed. `total_count` is not interpreted as root count. Multiple
+incomplete or non-progressing scans fail closed. `total_count` is not interpreted as root count. Circle's default listing (web view and an unpaginated API call) returns only a recent window of roots; paginate fully before treating a count as the total. Multiple
 GETs may be necessary; a one-call scan is not guaranteed.
 
 Private consumers use `watch.scan`, `load_state`, and `commit(path, result)`.
@@ -36,12 +36,12 @@ Observed 2026-10-21 against help.circle.so (October 2026 docs) and a live
 community. Re-check before relying on it; Circle changes these settings.
 
 - Chat spaces have no email channel. In a member's notification settings the
-  chat row's email column is disabled. The only selectable options are new
-  messages -> push, and Mentions -> in-app + push. In-app notifications for chat
+  chat row's email column is disabled. For a chat space only two cells are
+  selectable: New messages: push; Mentions: in-app and push. In-app notifications for chat
   are mention-only; the web app otherwise shows passive sidebar badges and a
   Threads badge (the sidebar may not refresh until the page reloads).
-- So the only proactive channel for chat activity is mobile push (branded or
-  generic Circle app).
+- So the only channel that reaches a member outside the web app is mobile push
+  (branded or generic Circle app); in-app is mention-only and passive.
 - There is no native event trigger for new chat-space messages: workflow
   messaging triggers only cover "Admin received a direct message", and custom
   push in the branded app is a manual or scheduled broadcast, not event-driven.
@@ -50,11 +50,9 @@ community. Re-check before relying on it; Circle changes these settings.
   `GET /internal_api/notification_preferences` (per-space rows live under
   `space_groups[].space_members[]`; their `id` is a space-membership id, not a
   space id). Space defaults via `GET /internal_api/spaces/<id>`:
-  `default_notification_setting` (email), `default_in_app_notification_setting`,
+  `default_notification_setting` (email; present on chat spaces too, but has no effect there), `default_in_app_notification_setting`,
   `default_mobile_notification_setting`, `mention_notifications_enabled`.
 - Admin UI for space defaults: Community -> Spaces -> hover a space -> ... ->
   Edit space -> Options -> New message notifications; saving asks whether to
   apply to all members or new members only. Members can override defaults in
   their own settings.
-- A space's default view shows only a recent window of roots; paginate fully
-  before treating a count as the total.

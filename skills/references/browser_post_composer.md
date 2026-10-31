@@ -46,7 +46,7 @@ dlg = page.locator("[role=dialog]").filter(has=page.locator(".tiptap.ProseMirror
 
 ## 3. 封面
 
-**Add cover** 打开 "Choose cover image" 对话框，里面有独立的 `input[type=file]`。对它 `set_input_files(<cover>)`，再点 **Save changes**。成功后封面区出现 Replace / Remove。封面是否需要、用什么比例，按目标空间的惯例决定（回放帖的规格见 `recording_posts.md` 第二节）。
+**Add cover** 打开 "Choose cover image" 对话框，里面有独立的 `input[type=file]`。对它 `set_input_files(<cover>)`，再点 **Save changes**。成功后封面区出现 Replace / Remove。封面是否需要、用什么比例，按目标空间的惯例决定（回放帖的封面比例与安全区见 `recording_posts.md` 第二节）。
 
 ## 4. 正文插图
 
@@ -193,3 +193,4 @@ CLI 的 `upload-image` 把文件直传成 blob，返回 `signed_id` 和 `url`；
 | Publish 一直是灰的 | 还没选 Topic。选至少一个后才可点。 |
 | 交付后人的窗口被刷新了，或图片被误删 | 交付后不要再对那个窗口跑脚本；交付前把选区移出媒体节点。 |
 | 关掉窗口后变成未登录，`connect_over_cdp` 报 "Browser context management is not supported" | 浏览器没有任何 tab 了。`PUT http://127.0.0.1:<port>/json/new?<url>` 开一个 tab 再连，重新注入 cookie。 |
+| 往**已发布**帖子的编辑器里用 tiptap commands 插入段落，点 Save 后刷新发现没保存上 | 已发布帖子的编辑器可能不把脚本插入当成用户编辑（原因未验证；新帖在 Create post 里用 `setContent` / `insertContentAt` 重建正文不受影响）。改已发布帖子时，用键盘输入那一段（如 `keyboard.type`）再 Save；这是对已发布帖子的写操作，要用户对这次修改明确授权；每次 Save 后刷新页面，用 `getJSON()` 读回正文。 |
