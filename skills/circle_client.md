@@ -277,7 +277,7 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 
 帖子发布后给视频补字幕和章节（帖子页视频右上角 Customize media 对话框）是对已发布帖子的修改：要用户对这一次修改明确授权，agent 点 Save 后立刻用 `video.textTracks` 回读。英文讲座不要用 Circle 的自动转写，上传自制的中英双语 .vtt；时间轴映射、按比例切分、双语组装和校验用离线模块 `circle_client_skill.subtitles`。
 
-活动回放帖特有的流程（从空间归纳惯例、帖子结构与标题模板 `<活动标题>｜<系列名>回放`、录像里他人发言的处理与时间戳平移、起草 → 事实核对 → voice rewrite → surgical fix、发布后的双语字幕与章节、相关的坑）见 [`references/recording_posts.md`](references/recording_posts.md)；它的编辑器部分同样引用上面的通用文档。
+活动回放帖特有的流程（从空间归纳惯例、帖子要素清单（形态由社区惯例决定）、列表卡片的封面安全区、复用活动录像的副作用、录像里他人发言的处理与时间戳平移、一种起草与核对流程、发布后的双语字幕与章节、相关的坑）见 [`references/recording_posts.md`](references/recording_posts.md)；它的编辑器部分同样引用上面的通用文档。
 
 ## 课程 lesson（批量搬教材）
 
