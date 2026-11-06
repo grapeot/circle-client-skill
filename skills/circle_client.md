@@ -332,6 +332,8 @@ CLI 没有 `create-event` / `publish-event` 一类命令，也不要为单次需
 
 ## Probe 工具（默认可见窗口）
 
+活动列表页面探查可参考 [`examples/list_upcoming_events_browser.py`](../examples/list_upcoming_events_browser.py)。这是基于 2026-10-27 英文界面的 reference implementation，不是正式活动查询命令：使用前重新核对选择器、英文标签和滚动行为，输出不保证完整。不要把这个示例注册为 CLI 或默认活动读取流程。
+
 CLI 没覆盖的页面（活动表单、新面板）先用 probe 工具看，不要猜 endpoint。`circle_client_skill.probe` 只做四件事：观察、截图、抓请求、回读状态。需要 `browser` extra（`uv pip install -e '.[browser]'` + `python -m playwright install chromium`）。
 
 `ProbeSession` 必须默认使用可见窗口（`headless=False`）。`headless=True` 只是 opt-in：用户明确要求 headless，或当前环境没有 GUI 时才传。`python -m circle_client_skill.probe` 不带 headless 参数，走同一个可见默认。
