@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-11-06 Upcoming-event browser reference
+
+- Preserved the previously untracked Upcoming-card browser script as `examples/list_upcoming_events_browser.py`, not a supported CLI command.
+- Its English labels, DOM selectors and stable-scroll heuristic are explicitly provisional. Output describes observed cards rather than claiming a complete event inventory.
+- The original observation returned five cards on 2026-10-27; this change does not claim a fresh live validation. The default ProbeSession write guard remains enabled.
+
 ### 2026-11-06 Chat reply alerts link to the thread root
 
 - Reply events still carry the reply id and body, but `url` now uses `#message_<root id>`.
