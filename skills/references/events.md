@@ -118,7 +118,7 @@ Before publishing, read back visibility (including the corresponding `live_strea
 | Method | Endpoint | 说明 |
 |---|---|---|
 | GET | `/internal_api/spaces/<space_id>/posts?past_events=true&per_page=50` | 活动以 post 形式返回。每条记录带 `event_setting_attributes`：`starts_at`/`ends_at`（UTC）、`time_zone`、`location_type`、`send_publish_email`、`send_email_confirmation`、`send_email_reminder`、`send_in_app_notification_*`、`hide_location_from_non_attendees`、`rsvp_access_group_ids`、报名人数等 |
-| GET | `/internal_api/spaces/<space_id>/events/<slug>/event_attendees?role=participant` | 报名者列表 |
+| GET | `/internal_api/spaces/<space_id>/events/<slug>/event_attendees?role=participant` | 报名者列表。只读命令是 `event-attendees`；这不改变「活动写操作不进 CLI」的边界 |
 | GET | `/internal_api/events/access_groups` | RSVP 可选的 access group |
 
 写（只记录契约，本 skill 不提供对应命令）：

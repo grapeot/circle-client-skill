@@ -124,6 +124,10 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 
 要拿单条全文：post 用 `get-post --slug`；chat message 当前没有单独 fetch 命令，表格预览只截前 80 字符，需要全文时加 `--json` 取 `records[].body`。
 
+活动报名名单用 `event-attendees`。它只读，不创建、不修改、不发布活动。`--all` 按页跟到 `has_next_page` 结束；`page_count` 不可靠，不要用它判断是否拉完。默认输出去掉 `email`，需要时加 `--include-email`。输出含成员身份，不要提交到公开仓库。
+
+一个人的资料和帖子用 `member-profile --public-uid`。`page_name=profile_view` 带 headline、bio、公司、职业和 `posts_count`。`--posts N` 再取最近 N 篇，`tiptap_body` 就是正文，不必再打 `get-post`。Circle 会忽略这个接口上的 `space_id`，不能用它只取某一个 space 的帖。评论不在这个响应里。
+
 要拿每篇 post 的回复数：`list-posts --with-counts`（对每个 post 多发一次 `list_comments per_page=1` 取 `count`，N+1 请求，按需开启）。**post 级别的 likes 数无法通过 member-session API 获取**——Circle 的 post-list 和 post-detail endpoint 都不返回 `likes_count`，也不存在 `/likes` endpoint；只有 comment 对象带 `likes_count`。
 
 ## 排序与分页契约
@@ -152,6 +156,8 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 .venv/bin/circle-client spaces
 .venv/bin/circle-client list-posts -s <space_id> [--page N] [--per-page N] [--full] [--with-counts]
 .venv/bin/circle-client get-post -s <space_id> --slug <slug> [--extract-text]
+.venv/bin/circle-client event-attendees -s <space_id> --slug <slug> [--all] [--output attendees.json]
+.venv/bin/circle-client member-profile --public-uid <uid> [--posts 5 | --all-posts]
 .venv/bin/circle-client create-post -s <space_id> --name "Title" --user-id <id> --dry-run
 .venv/bin/circle-client create-post -s <space_id> --name "Title" --user-id <id> --execute --confirm CREATE-POST
 .venv/bin/circle-client update-post -s <space_id> --post-id <id> --slug <slug> --name "New" --user-id <id> --execute --confirm UPDATE-POST
@@ -302,7 +308,7 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 
 ## 活动（event）
 
-**原则：本 skill 里与活动相关的脚本只用于 probe（观察表单、默认值、回读状态）。活动的写操作（创建、编辑、发布）走浏览器 UI，由人操作或由用户明确授权的浏览器 session 操作，不通过 CLI/API 命令。Publish 永远由人亲手点。** 通知类命令照旧走 CLI。往真实社区 space 写数据需要用户在主会话里明确授权；转述给 sub-agent 的授权可能被 agent 权限系统拦下，先在 test space 里试。
+**原则：活动的写操作（创建、编辑、发布）走浏览器 UI，不通过 CLI。Publish 永远由人亲手点。** 读报名名单用 `event-attendees`，那是 GET，不是写命令。表单观察仍用 probe。通知类命令照旧走 CLI。往真实社区 space 写数据需要用户在主会话里明确授权；转述给 sub-agent 的授权可能被 agent 权限系统拦下，先在 test space 里试。
 
 CLI 没有 `create-event` / `publish-event` 一类命令，也不要为单次需求临时写一个。几个最容易踩的事实：**Create event 对话框**的 Save 只建草稿（`status` 写死 `"draft"`），已有已发布活动的 Save 则会更新该活动；发布邮件、确认邮件、提醒邮件的开关只在草稿编辑页里，默认全开；发布邮件只在 Publish 那一刻发，之后无法重发；secret test space 里有非 admin 成员时，Publish 一样会发通知；表单时间按成员资料时区解释。
 
