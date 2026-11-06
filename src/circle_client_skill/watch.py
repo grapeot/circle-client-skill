@@ -112,10 +112,11 @@ def scan(client: Any, *, source: str, member_id: int, targets: list[dict],
                              'name': space.get('name', key)},
                    'participant_id': pid, 'roots': {}, 'checked_at': checked}
 
-        def public(message: dict, slug: str = space['slug']) -> dict:
+        def public(message: dict, slug: str = space['slug'], anchor: int | None = None) -> dict:
+            link_id = message['id'] if anchor is None else anchor
             return {'id': message['id'], 'participant_id': message.get('chat_room_participant_id'),
                     'body_text': rich_text_message_text(message),
-                    'url': f'{source}/c/{slug}#message_{message["id"]}'}
+                    'url': f'{source}/c/{slug}#message_{link_id}'}
 
         for root in roots:
             rid = str(root['id'])
@@ -144,7 +145,7 @@ def scan(client: Any, *, source: str, member_id: int, targets: list[dict],
                              (previous or {}).get('last_reply_at') or old['checked_at'])))
                 if involved and fresh and not reply.get('deleted_at') and reply.get('chat_room_participant_id') != pid:
                     events.append({'kind': 'new_reply', 'target': key,
-                                   'root_id': root['id'], **public(reply)})
+                                   'root_id': root['id'], **public(reply, anchor=root['id'])})
             snapshot['seen'] = sorted(seen | {str(r['id']) for r in replies})
         next_state['targets'][key] = current
     return {'changed': bool(events), 'events': events, 'base_digest': digest(state),
