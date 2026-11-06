@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-11-06 Chat reply alerts link to the thread root
+
+- Reply events still carry the reply id and body, but `url` now uses `#message_<root id>`.
+- Circle's chat page only scrolls to the thread root. A reply id opens the space and leaves the discussion closed, including when that root is outside the recent-message window.
+- New-root URLs are unchanged. Offline tests cover both anchors. No live writes.
+
 ### 2026-11-06 Read event RSVPs and member profiles
 
 - Added read-only `event-attendees` and `member-profile`. Neither command writes Circle or publishes an event.

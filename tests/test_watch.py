@@ -55,13 +55,17 @@ def test_new_root():
     c = Client()
     state = run(c)['next_state']
     c.roots.append(msg(20, None, 2))
-    assert run(c, state)['events'][0]['kind'] == 'new_root'
+    event = run(c, state)['events'][0]
+    assert event['kind'] == 'new_root'
+    assert event['url'] == 'https://example.test/c/support#message_20'
 
 
 def test_new_reply_and_historical_participation_without_preview():
     c, state = changed()
     events = run(c, state)['events']
     assert [e['id'] for e in events] == [12]
+    assert events[0]['root_id'] == 10
+    assert events[0]['url'] == 'https://example.test/c/support#message_10'
 
 
 def test_same_count_new_timestamp():

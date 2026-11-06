@@ -11,6 +11,9 @@ authored a root/reply in. Participation uses actual message authors, never previ
 members. Verify the per-room participant ID against your community member ID using
 the room participants response. IDs are not interchangeable across rooms.
 Edits/deletes are not alerts. Output includes plain text and space/message URLs.
+The URL fragment is always the thread root (`#message_<root id>`), including for
+replies. Circle's chat page only scrolls to that anchor; a reply id opens the
+space without opening the discussion.
 
 A missing checkpoint establishes a silent baseline. Corrupt or identity-mismatched
 state fails closed. Root and reply pagination are bounded to 100 progressing pages;
