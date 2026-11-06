@@ -2,6 +2,14 @@
 
 ## Changelog
 
+### 2026-11-06 Read event RSVPs and member profiles
+
+- Added read-only `event-attendees` and `member-profile`. Neither command writes Circle or publishes an event.
+- Attendee and profile JSON omits `email` unless `--include-email` is set. `--output` writes mode 0600.
+- Member post pages include `tiptap_body`. Circle ignores space filters on that endpoint; the command does not pretend otherwise.
+- Pagination follows `has_next_page` and does not use `page_count`. An empty page that still says another page exists, or a page that only repeats seen ids, raises instead of reporting a complete list.
+- `--output` writes through a 0600 temporary file and replaces the target. It does not create a world-readable file and then chmod it.
+
 ### 2026-10-29 Lesson manifests reject relative links
 
 - A student reported a 404 on a download link in a published lesson. The manifest HTML carried a relative href (`../assets/ch05/demo.py`); Circle stored it as `assets/ch05/demo.py` and the browser resolved it against the lesson URL. Eight published lessons in two course spaces had the same problem.

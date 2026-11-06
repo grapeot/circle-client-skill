@@ -5,6 +5,7 @@ import hashlib
 import json
 import mimetypes
 import re
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,55 @@ def _redact_credentials(value: str) -> str:
         r"\1\2***",
         value,
     )
+
+
+_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+
+
+def _require_token(value: str, name: str) -> None:
+    if not isinstance(value, str) or _TOKEN.fullmatch(value) is None:
+        raise ValueError(f"{name} must be a single URL path segment")
+
+
+def _iter_record_pages(
+    fetch: Callable[[int], dict[str, Any]],
+    *,
+    per_page: int,
+    max_pages: int,
+) -> Iterator[dict[str, Any]]:
+    if max_pages <= 0:
+        raise ValueError("max_pages must be positive")
+    seen: set[int] = set()
+    for page in range(1, max_pages + 1):
+        payload = fetch(page)
+        if not isinstance(payload, dict) or not isinstance(payload.get("records"), list):
+            raise CircleClientError("Circle returned a page without a records list")
+        records = payload["records"]
+        fresh: list[dict[str, Any]] = []
+        for record in records:
+            if not isinstance(record, dict):
+                raise CircleClientError("Circle returned a non-object record")
+            record_id = record.get("id")
+            if isinstance(record_id, int):
+                if record_id in seen:
+                    continue
+                seen.add(record_id)
+            fresh.append(record)
+        if not fresh:
+            if not records and payload.get("has_next_page") is True:
+                raise CircleClientError(
+                    f"empty page {page} while has_next_page is true; refusing to skip later pages"
+                )
+            if records:
+                raise CircleClientError(
+                    f"page {page} repeated already seen records; pagination did not advance"
+                )
+            return
+        yield {"page": page, "payload": payload, "records": fresh}
+        has_next = payload.get("has_next_page")
+        if has_next is False or (has_next is None and len(records) < per_page):
+            return
+    raise CircleClientError(f"pagination exceeded max_pages={max_pages}")
 
 
 class CircleClientError(RuntimeError):
@@ -405,6 +455,85 @@ class CircleClient:
         return self._request(
             "GET",
             f"{self.settings.base_url}/internal_api/spaces/{space_id}/posts/{slug}",
+        )
+
+    def list_event_attendees(
+        self,
+        space_id: int,
+        slug: str,
+        *,
+        role: str = "participant",
+        page: int = 1,
+        per_page: int = 50,
+    ) -> dict[str, Any]:
+        """List one page of event RSVPs. Read-only; does not create or publish events."""
+        if type(space_id) is not int or space_id <= 0:
+            raise ValueError("space_id must be a positive integer")
+        if page <= 0 or per_page <= 0:
+            raise ValueError("page and per_page must be positive")
+        _require_token(slug, "slug")
+        _require_token(role, "role")
+        return self._request(
+            "GET",
+            f"{self.settings.base_url}/internal_api/spaces/{space_id}/events/{slug}/event_attendees",
+            params={"role": role, "page": str(page), "per_page": str(per_page)},
+        )
+
+    def iter_event_attendees(
+        self,
+        space_id: int,
+        slug: str,
+        *,
+        role: str = "participant",
+        per_page: int = 50,
+        max_pages: int = 100,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield every attendee page. Stops on a short page, a repeated id, or has_next_page false."""
+        return _iter_record_pages(
+            lambda page: self.list_event_attendees(
+                space_id, slug, role=role, page=page, per_page=per_page
+            ),
+            per_page=per_page,
+            max_pages=max_pages,
+        )
+
+    def get_member_profile(self, public_uid: str) -> dict[str, Any]:
+        """Read the member profile page payload, including headline and profile fields."""
+        _require_token(public_uid, "public_uid")
+        return self._request(
+            "GET",
+            f"{self.settings.base_url}/internal_api/profiles/{public_uid}",
+            params={"page_name": "profile_view"},
+        )
+
+    def list_member_posts(
+        self,
+        public_uid: str,
+        *,
+        page: int = 1,
+        per_page: int = 10,
+    ) -> dict[str, Any]:
+        """List one page of a member's own posts. The body is included; space filters are ignored by Circle."""
+        if page <= 0 or per_page <= 0:
+            raise ValueError("page and per_page must be positive")
+        _require_token(public_uid, "public_uid")
+        return self._request(
+            "GET",
+            f"{self.settings.base_url}/internal_api/profiles/{public_uid}/posts",
+            params={"page": str(page), "per_page": str(per_page)},
+        )
+
+    def iter_member_posts(
+        self,
+        public_uid: str,
+        *,
+        per_page: int = 20,
+        max_pages: int = 50,
+    ) -> Iterator[dict[str, Any]]:
+        return _iter_record_pages(
+            lambda page: self.list_member_posts(public_uid, page=page, per_page=per_page),
+            per_page=per_page,
+            max_pages=max_pages,
         )
 
     def create_post(

@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import webbrowser
 from datetime import UTC, datetime
 from pathlib import Path
@@ -573,6 +574,136 @@ def cmd_get_post(args: argparse.Namespace) -> None:
         _print_json({"success": True, "post": post})
     else:
         print(format_post_card(post))
+
+
+_PRIVATE_RECORD_KEYS = ("email",)
+
+
+def _strip_private(value: object, *, include_email: bool) -> object:
+    if include_email:
+        return value
+    if isinstance(value, list):
+        return [_strip_private(item, include_email=False) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _strip_private(item, include_email=False)
+            for key, item in value.items()
+            if key not in _PRIVATE_RECORD_KEYS
+        }
+    return value
+
+
+def _write_private(path: Path, text: str) -> None:
+    """Write sensitive JSON as mode 0600 before any payload bytes are visible."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    tmp = Path(tmp_name)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.chmod(path, 0o600)
+
+
+def _emit_read(payload: dict[str, object], args: argparse.Namespace) -> None:
+    if args.output:
+        _write_private(Path(args.output), json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    if args.json or not args.output:
+        _print_json(payload)
+    else:
+        print(f"wrote {payload.get('count', 0)} records to {args.output}")
+
+
+def cmd_event_attendees(args: argparse.Namespace) -> None:
+    settings = load_settings(Path(args.env_file))
+    client = CircleClient(settings, timeout=args.timeout)
+    if args.all:
+        pages = list(
+            client.iter_event_attendees(
+                args.space_id,
+                args.slug,
+                role=args.role,
+                per_page=args.per_page,
+                max_pages=args.max_pages,
+            )
+        )
+        records = [record for page in pages for record in page["records"]]
+        first = pages[0]["payload"] if pages else {}
+        payload = {
+            "success": True,
+            "count": len(records),
+            "pages_fetched": len(pages),
+            "total_confirmed_record_count": first.get("total_confirmed_record_count"),
+            "records": records,
+        }
+    else:
+        result = client.list_event_attendees(
+            args.space_id,
+            args.slug,
+            role=args.role,
+            page=args.page,
+            per_page=args.per_page,
+        )
+        records = result.get("records", [])
+        payload = {
+            "success": True,
+            "count": len(records) if isinstance(records, list) else 0,
+            "page": result.get("page", args.page),
+            "per_page": result.get("per_page", args.per_page),
+            "has_next_page": result.get("has_next_page"),
+            "total_confirmed_record_count": result.get("total_confirmed_record_count"),
+            "records": records,
+        }
+    _emit_read(_strip_private(payload, include_email=args.include_email), args)
+
+
+def cmd_member_profile(args: argparse.Namespace) -> None:
+    if args.all_posts and args.posts:
+        raise ValueError("pass only one of --posts and --all-posts")
+    settings = load_settings(Path(args.env_file))
+    client = CircleClient(settings, timeout=args.timeout)
+    profile = client.get_member_profile(args.public_uid)
+    if args.all_posts:
+        pages = list(
+            client.iter_member_posts(
+                args.public_uid, per_page=args.per_page, max_pages=args.max_pages
+            )
+        )
+        posts = [record for page in pages for record in page["records"]]
+        last = pages[-1]["payload"] if pages else {}
+        post_meta = {
+            "pages_fetched": len(pages),
+            "has_next_page": last.get("has_next_page"),
+        }
+    elif args.posts:
+        result = client.list_member_posts(
+            args.public_uid, page=1, per_page=args.posts
+        )
+        posts = result.get("records", [])
+        post_meta = {
+            "page": result.get("page", 1),
+            "per_page": result.get("per_page", args.posts),
+            "has_next_page": result.get("has_next_page"),
+        }
+    else:
+        posts = []
+        post_meta = {}
+    payload = {
+        "success": True,
+        "profile": profile,
+        "posts_count": profile.get("posts_count") if isinstance(profile, dict) else None,
+        "count": len(posts) if isinstance(posts, list) else 0,
+        "posts": posts,
+        **post_meta,
+    }
+    _emit_read(_strip_private(payload, include_email=args.include_email), args)
 
 
 def cmd_create_post(args: argparse.Namespace) -> None:
@@ -1430,6 +1561,34 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Extract plain text from tiptap_body instead of returning raw JSON")
     get_post.add_argument("--timeout", type=float, default=30)
     get_post.set_defaults(handler=cmd_get_post)
+
+    event_attendees = subparsers.add_parser(
+        "event-attendees", help="List RSVPs for one event (read-only)"
+    )
+    event_attendees.add_argument("-s", "--space-id", type=int, required=True)
+    event_attendees.add_argument("--slug", required=True)
+    event_attendees.add_argument("--role", default="participant")
+    event_attendees.add_argument("--page", type=int, default=1)
+    event_attendees.add_argument("--per-page", type=int, default=50)
+    event_attendees.add_argument("--all", action="store_true", help="Follow pagination until the list ends")
+    event_attendees.add_argument("--max-pages", type=int, default=100)
+    event_attendees.add_argument("--include-email", action="store_true")
+    event_attendees.add_argument("--output")
+    event_attendees.add_argument("--timeout", type=float, default=30)
+    event_attendees.set_defaults(handler=cmd_event_attendees)
+
+    member_profile = subparsers.add_parser(
+        "member-profile", help="Read one member profile and optionally that member's posts"
+    )
+    member_profile.add_argument("--public-uid", required=True)
+    member_profile.add_argument("--posts", type=int, help="Also fetch this many recent posts, body included")
+    member_profile.add_argument("--all-posts", action="store_true")
+    member_profile.add_argument("--per-page", type=int, default=20)
+    member_profile.add_argument("--max-pages", type=int, default=50)
+    member_profile.add_argument("--include-email", action="store_true")
+    member_profile.add_argument("--output")
+    member_profile.add_argument("--timeout", type=float, default=30)
+    member_profile.set_defaults(handler=cmd_member_profile)
 
     create_post = subparsers.add_parser("create-post", help="Create a post (dry-run by default)")
     create_post.add_argument("-s", "--space-id", type=int, required=True)
