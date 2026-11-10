@@ -10,6 +10,7 @@ description: >-
   For Circle Live replay discovery, chat/Q&A exports, and cleaned attachments on an
   existing event, load references/live_replay_exports.md; an explicitly authorized
   published-event edit may use Save in the visible browser, followed by readback.
+  Reads existing Paywall, nested Price, and Coupon configuration with the saved session.
   Paywall creation, trial extension, billing-date changes, and recurring
   transaction refunds are not CLI commands; route them to references/paywall_subscriptions.md.
 ---
@@ -30,6 +31,7 @@ description: >-
 - 用户要发帖、改帖，或把一场活动整理成回放帖：走下文「写帖子：可见浏览器」，不走 CLI。
 - 用户要找 Circle Live 回放、导出 chat/Q&A，或把去邮箱的聊天记录附到现有活动：走 [`references/live_replay_exports.md`](references/live_replay_exports.md)。
 - 用户要建测试 paywall、延长 trial、改 billing date，或退一笔周期性续费交易：没有对应 CLI。走「Paywall 与个人 trial 改期」。
+- 用户要枚举现有 Paywall、嵌套 Price、Coupon 及精确适用范围：走「只读商品与优惠券配置」。
 
 ## 看通知 / 通知可视化（首要工作流）
 
@@ -320,9 +322,34 @@ CLI 没有 `create-event` / `publish-event` 一类命令，也不要为单次需
 
 `get-flagged-content` 只读待审正文；`approve-post` / `reject-post` 默认离线 dry-run，live 需明确授权、`--execute` 与匹配的 `--confirm APPROVE-POST` / `REJECT-POST`。必须提供预期 `--post-id` 和 `--space-id`，仅支持 Post。先 GET 核对目标，再 PATCH，最后回读 approved/rejected；同动作顺序重复只读后跳过，不保证并发 exactly-once。完整参数与失败恢复见 [`references/post_moderation.md`](references/post_moderation.md)。
 
+## 只读商品与优惠券配置
+
+复用已经配置的 cookie 会话；账户必须能读取对应管理配置。以下命令只有 GET，不新增登录流程，不创建或修改任何商品、价格或券：
+
+```bash
+.venv/bin/circle-client paywalls list --output data/paywalls.json
+.venv/bin/circle-client paywalls list --status inactive --status draft --type space
+.venv/bin/circle-client paywalls get 501 --output data/paywall.json
+.venv/bin/circle-client coupons list --output data/coupons.json
+.venv/bin/circle-client coupons list --status inactive
+.venv/bin/circle-client coupons get 1001 --output data/coupon.json
+```
+
+输出默认 JSON；`--output` 以 0600 权限写文件并只显示摘要，加 `--json` 同时打印正文。实际商品名称、coupon code、适用范围和配置内容都是私有数据，留在 ignored `data/`，不要提交到公开仓库。
+
+`paywalls list` 对 `/internal_api/paywalls` 显式请求 `status[]=draft/active/inactive`、`type[]=space/event`，两个参数都可重复指定；状态还在客户端复核过滤。`get` 从相同的全状态、双类型列表按整数 ID 精确匹配，不猜测 detail endpoint。没有找到只说明当前列表没返回，不能证明对象已删除。`type` 是服务端过滤条件，响应没有稳定的同名类型字段供本地复核。完整保留每个对象的 `prices` 及其他返回字段，不按 Paywall 状态过滤 Price：inactive Paywall 可能带 active 或 draft Price。移除的 Price 未必作为 inactive 返回，不承诺枚举已删除对象。
+
+`coupons list` 对 `/internal_api/paywalls/coupons` 只请求一次，不传 `page/per_page`；已观测该接口忽略这两个参数。默认保留所有返回状态，`--status active/inactive` 是客户端过滤。`get` 读 `/internal_api/paywalls/coupons/{id}` 并校验返回 ID。`all_paywalls`、`paywall_ids`、`paywall_prices`（Paywall ID 字符串 → Price ID 整数数组）、`all_paid_events`、`paywall_event_ids` 原样保留，不把精确 Price scope 扩大为整个 Paywall，也不把空 scope 或缺失字段解释成全适用。ID 是 Circle ID，不是 Stripe ID。
+
+两种列表当前都返回裸数组，没有总数、cursor 或结束标志，因此 `pagination.complete` 固定为 `null`，`stop_reason=array_without_pagination_metadata`。这表示完整性未知，而不是完整或截断的断言；`count` 只表示本次过滤后返回条数，`received_count` 表示过滤前条数。遇到分页 envelope、重复 ID、缺失嵌套 Price 或损坏的 Coupon scope 就报错，不套用短页推断、静默丢记录或重复数组循环。一次 GET 也不构成跨 Paywall/Coupon 的原子快照。
+
+金额字段不做转换：已观测的 Paywall `prices[].amount` 是货币最小单位（例如 USD 100 表示 $1.00）；Coupon `PaywallCoupons::Percent` 的 `amount` 是百分比（例如字符串 `"10.0"` 表示 10%）。不要据此把所有 `amount`、附加金额或 installment 字段都解释成最小单位；固定额 Coupon 的 `amount` 也原样返回，使用前须按该类型核验单位。`currency` 与格式化展示字段保留供核对，不从展示文本反算金额。
+
+这些内部接口无稳定公开契约，会话权限或过期可能导致 401/403，重定向直接拒绝且不携带凭据跟随，错误不透传服务端正文。未验证配置版本、Stripe 对象映射、外部兑换资格或跨渠道使用次数；读到 `active` 不等于用户此刻有资格兑换。此能力只提供 Circle 现有配置输入，不实现支付、配额执行或同步 daemon。
+
 ## Paywall 与个人 trial 改期
 
-本仓库没有 `paywall-*`、billing 或退款命令，也不要新增。成员 cookie 和 CSRF 也不是 Admin API token。隔离测试 paywall、正常 checkout、延长 genuine trial、取消后归档，以及单笔周期性续费的交易级退款，走人类可见浏览器，可选再调用官方 Admin API v2。周期性续费退款优先走 Circle Transactions 里该笔扣款的 Refund payment，不要走取消订阅并附带退款。已验证和仅文档的分界、以及不能照抄的请求模板，见 [`references/paywall_subscriptions.md`](references/paywall_subscriptions.md)。这份手册不授权新的 live 写操作；每次写入仍要当次明确授权。
+本仓库只提供上述 Paywall/Coupon 读取命令，没有商品/券写入、billing 或退款命令，也不要新增这些写命令。成员 cookie 和 CSRF 也不是 Admin API token。隔离测试 paywall、正常 checkout、延长 genuine trial、取消后归档，以及单笔周期性续费的交易级退款，走人类可见浏览器，可选再调用官方 Admin API v2。周期性续费退款优先走 Circle Transactions 里该笔扣款的 Refund payment，不要走取消订阅并附带退款。已验证和仅文档的分界、以及不能照抄的请求模板，见 [`references/paywall_subscriptions.md`](references/paywall_subscriptions.md)。这份手册不授权新的 live 写操作；每次写入仍要当次明确授权。
 
 ## Chat watching
 

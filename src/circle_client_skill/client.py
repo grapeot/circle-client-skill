@@ -268,6 +268,90 @@ class CircleClient:
         except requests.JSONDecodeError as exc:
             raise CircleClientError("Circle returned a non-JSON response") from exc
 
+    # ---- Read-only Paywall / Coupon configuration (admin browser session) ----
+
+    def _config_get(self, path: str, params: list[tuple[str, str]] | None = None) -> Any:
+        """Only called by fixed configuration endpoints; never forward cookies on redirects."""
+        url = f"{self.settings.base_url}{path}"
+        if params:
+            url += "?" + urlencode(params)
+        try:
+            response = self.session.get(
+                url, headers=self.settings.headers(), timeout=self.timeout, allow_redirects=False,
+            )
+        except requests.RequestException as exc:
+            raise CircleClientError(f"Circle configuration request failed: {type(exc).__name__}") from exc
+        if response.status_code != 200:
+            # Never include an upstream body, Location, or cookie in configuration errors.
+            raise CircleClientError(
+                f"Circle configuration returned HTTP {response.status_code}",
+                status_code=response.status_code,
+            )
+        try:
+            return response.json()
+        except requests.JSONDecodeError as exc:
+            raise CircleClientError("Circle configuration returned a non-JSON response") from exc
+
+    def list_paywalls(
+        self, *, statuses: tuple[str, ...] = ("draft", "active", "inactive"),
+        types: tuple[str, ...] = ("space", "event"),
+    ) -> dict[str, Any]:
+        """Read one observed array, retaining all nested prices and independent statuses."""
+        from .catalog import PAYWALL_STATUSES, PAYWALL_TYPES, array_records, list_result
+
+        if not statuses or any(s not in PAYWALL_STATUSES for s in statuses):
+            raise ValueError("statuses must contain draft, active, or inactive")
+        if not types or any(t not in PAYWALL_TYPES for t in types):
+            raise ValueError("types must contain space or event")
+        path = "/internal_api/paywalls"
+        params = [("status[]", s) for s in dict.fromkeys(statuses)]
+        params += [("type[]", t) for t in dict.fromkeys(types)]
+        records = array_records(self._config_get(path, params), "paywall")
+        return list_result(
+            [r for r in records if r["status"] in statuses], endpoint=path,
+            filters={"status": list(statuses), "type": list(types)}, received=len(records),
+        )
+
+    def get_paywall(self, paywall_id: int) -> dict[str, Any]:
+        """Find an exact id in the observed list; do not guess a show endpoint."""
+        from .catalog import positive_id
+
+        positive_id(paywall_id, "paywall_id")
+        result = self.list_paywalls()
+        matches = [r for r in result["records"] if r["id"] == paywall_id]
+        if not matches:
+            raise CircleClientError(
+                "Paywall id was not returned by the visible list; absence is not proof of deletion"
+            )
+        return {k: v for k, v in result.items() if k not in ("records", "count")} | {
+            "count": 1, "record": matches[0],
+        }
+
+    def list_coupons(self, *, statuses: tuple[str, ...] | None = None) -> dict[str, Any]:
+        """Coupon arrays ignore page/per_page. Fetch once, optionally filter locally."""
+        from .catalog import COUPON_STATUSES, array_records, list_result
+
+        if statuses is not None and (not statuses or any(s not in COUPON_STATUSES for s in statuses)):
+            raise ValueError("statuses must contain active or inactive")
+        path = "/internal_api/paywalls/coupons"
+        records = array_records(self._config_get(path), "coupon")
+        return list_result(
+            [r for r in records if statuses is None or r["status"] in statuses], endpoint=path,
+            filters={"status": list(statuses) if statuses is not None else None,
+                     "status_filter_location": "client"}, received=len(records),
+        )
+
+    def get_coupon(self, coupon_id: int) -> dict[str, Any]:
+        from .catalog import positive_id, validate_record
+
+        positive_id(coupon_id, "coupon_id")
+        path = f"/internal_api/paywalls/coupons/{coupon_id}"
+        record = validate_record(self._config_get(path), "coupon")
+        if record["id"] != coupon_id:
+            raise CircleClientError("Circle coupon response id did not match the requested id")
+        return {"schema_version": 1, "fetched_at": datetime.now(UTC).isoformat(),
+                "source": {"endpoint": path}, "count": 1, "record": record}
+
     # ---- Post moderation (admin browser session) ----
 
     def get_flagged_content(self, flagged_content_id: int) -> dict[str, Any]:

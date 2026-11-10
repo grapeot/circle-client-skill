@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### 2026-11-09 Read existing Paywall, Price and Coupon configuration
+
+- Added `paywalls list/get` and `coupons list/get` using the existing session, fixed GET endpoints and no redirect following. Errors retain HTTP status without upstream bodies. No configuration writes or new authentication flow.
+- Paywall enumeration requests draft/active/inactive and space/event, retaining nested Price states independently. Exact Paywall lookup uses that observed list. Coupon reads preserve exact paywall/price/event scopes, inactive state and raw amount units; status filtering is local.
+- Both observed lists are bare arrays without pagination metadata. One request only, `pagination.complete=null`; changed envelopes and invalid records fail explicitly. No short-page completion guess or ignored-page loop.
+- Synthetic offline tests cover request/filter contracts, malformed scopes, independent Price status, exact lookup, unknown completeness, HTTP/JSON errors, private output and input validation. A bounded live smoke read both lists and one object from each: schema and exact readbacks matched, including inactive configuration. Only counts/schema were emitted; no raw snapshots are tracked.
+
 ### 2026-11-06 Upcoming-event browser reference
 
 - Preserved the previously untracked Upcoming-card browser script as `examples/list_upcoming_events_browser.py`, not a supported CLI command.
