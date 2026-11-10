@@ -664,6 +664,21 @@ def cmd_event_attendees(args: argparse.Namespace) -> None:
     _emit_read(_strip_private(payload, include_email=args.include_email), args)
 
 
+def cmd_catalog(args: argparse.Namespace) -> None:
+    client = CircleClient(load_settings(Path(args.env_file)), timeout=args.timeout)
+    if args.catalog_action == "get":
+        method = client.get_paywall if args.command == "paywalls" else client.get_coupon
+        payload = method(args.id)
+    elif args.command == "paywalls":
+        payload = client.list_paywalls(
+            statuses=tuple(args.status or ("draft", "active", "inactive")),
+            types=tuple(args.type or ("space", "event")),
+        )
+    else:
+        payload = client.list_coupons(statuses=tuple(args.status) if args.status else None)
+    _emit_read(payload, args)
+
+
 def cmd_member_profile(args: argparse.Namespace) -> None:
     if args.all_posts and args.posts:
         raise ValueError("pass only one of --posts and --all-posts")
@@ -1813,6 +1828,27 @@ def build_parser() -> argparse.ArgumentParser:
     watch.set_defaults(handler=cmd_watch_diff)
 
     _add_course_admin_parsers(subparsers)
+
+    from .catalog import COUPON_STATUSES, PAYWALL_STATUSES, PAYWALL_TYPES
+
+    for resource in ("paywalls", "coupons"):
+        group = subparsers.add_parser(resource, help=f"Read existing {resource} configuration")
+        actions = group.add_subparsers(dest="catalog_action", required=True)
+        listing = actions.add_parser("list", help="Read the observed array; completeness is unknown")
+        listing.add_argument("--status", action="append",
+                             choices=PAYWALL_STATUSES if resource == "paywalls" else COUPON_STATUSES,
+                             help="Repeat to select statuses; default includes all")
+        if resource == "paywalls":
+            listing.add_argument("--type", action="append", choices=PAYWALL_TYPES,
+                                 help="Repeat to select types; default includes space and event")
+        detail = actions.add_parser("get", help="Read an exact numeric id")
+        detail.add_argument("id", type=int)
+        for action_parser in (listing, detail):
+            action_parser.add_argument("--output", help="Write private JSON (mode 0600)")
+            action_parser.add_argument("--timeout", type=float, default=30)
+            action_parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+            action_parser.add_argument("--env-file", default=argparse.SUPPRESS)
+            action_parser.set_defaults(handler=cmd_catalog)
 
     # Accept global flags after a subcommand too, matching the documented examples.
     for subparser in subparsers.choices.values():
