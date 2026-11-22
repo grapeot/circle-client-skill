@@ -545,6 +545,10 @@ def max_n(items: list[dict[str, Any]]) -> str:
     return max((n.get("created_at") or "" for n in items), default="")
 
 
+def _allows_mark_read(notification: dict[str, Any]) -> bool:
+    return notification.get("notifiable_type") != "FlaggedContent"
+
+
 def _other_items(groups: dict[tuple[Any, ...], list[dict[str, Any]]], discussion_keys: set[tuple[Any, ...]]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for key, group in groups.items():
@@ -563,7 +567,7 @@ def _other_items(groups: dict[tuple[Any, ...], list[dict[str, Any]]], discussion
                     "url": notification.get("action_web_url"),
                     "created_at": notification.get("created_at"),
                     # Flagged content needs review first; no quick mark-read.
-                    "allow_mark_read": kind != "FlaggedContent",
+                    "allow_mark_read": _allows_mark_read(notification),
                 }
             )
     items.sort(key=lambda item: item.get("created_at") or "", reverse=True)
@@ -690,7 +694,13 @@ class DashboardServer:
         return emotes, warning
 
     def origins_by_host(self) -> dict[str, str]:
-        origins = {f"{host}:{self.port}": f"http://{host}:{self.port}" for host in ("127.0.0.1", "localhost")}
+        origins = {}
+        for host in ("127.0.0.1", "localhost"):
+            authority = f"{host}:{self.port}"
+            origin = f"http://{host if self.port == 80 else authority}"
+            origins[authority] = origin
+            if self.port == 80:
+                origins[host] = origin
         if self.serve_origin is not None:
             origins[self.serve_origin.removeprefix("https://")] = self.serve_origin
         return origins
@@ -876,8 +886,11 @@ class DashboardServer:
         if not isinstance(notification_id, int):
             raise ActionError("notification_id 必须是整数")
         with self.state_lock:
-            if notification_id not in self.notifications_by_id:
+            notification = self.notifications_by_id.get(notification_id)
+            if notification is None:
                 raise ActionError("通知不在当前未读集合里；请刷新", 404)
+            if not _allows_mark_read(notification):
+                raise ActionError("此通知需人工审核", 403)
         self.client.mark_notification_read(notification_id, execute=True)
         self.log_action({"action": "mark_read", "notification_id": notification_id})
         return {"marked_read": True}

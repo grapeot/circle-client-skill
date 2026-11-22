@@ -5,7 +5,7 @@
 ### 2026-11-22 Tailscale Serve for the notification dashboard
 
 - `dashboard --serve-origin` opts in to a single HTTPS origin for a trusted private reverse proxy. The listener stays on loopback, validates Host, and requires an exact matching Origin on action requests. Tailscale Serve access policy gates the full dashboard, including writes; no app login or public listener is added.
-- Offline HTTP tests cover local and proxied reads/actions, rejected Host and Origin combinations, and invalid origin configuration. Docs use example values only.
+- Offline HTTP tests cover local and proxied reads/actions, rejected Host and Origin combinations, and invalid origin configuration. Flagged-content notifications require manual review at the API as well as in the UI. Docs use example values only.
 
 ### 2026-11-09 Read existing Paywall, Price and Coupon configuration
 

@@ -800,11 +800,11 @@ def test_http_endpoints(tmp_path) -> None:
 
 
 @pytest.mark.parametrize("serve_origin", [None, "https://node.example.test:8443", "https://node.example.test"])
-def test_http_react_roundtrip(tmp_path, serve_origin) -> None:
+def test_http_mark_read_roundtrip(tmp_path, serve_origin) -> None:
     from circle_client_skill.dashboard import create_dashboard_server
 
     client = FakeClient(comments=[_comment(3, parent=None)])
-    document = _doc([_notification(id=1)])
+    document = _doc([_notification(id=1), _notification(id=2, notifiable_type="FlaggedContent")])
 
     def fetch_with_content() -> dict[str, Any]:
         return document
@@ -830,13 +830,13 @@ def test_http_react_roundtrip(tmp_path, serve_origin) -> None:
             state = json.loads(resp.read().decode("utf-8"))
             assert resp.headers["Cache-Control"] == "no-store"
             assert resp.headers["X-Frame-Options"] == "DENY"
-        assert state["success"] is True and state["state"]["count"] == 1
+        assert state["success"] is True and state["state"]["count"] == 2
 
-        def mark_read(request_host, request_origin):
+        def mark_read(request_host, request_origin, notification_id=1):
             return urllib.request.urlopen(urllib.request.Request(
                 url + "api/mark_read",
                 method="POST",
-                data=json.dumps({"notification_id": 1}).encode(),
+                data=json.dumps({"notification_id": notification_id}).encode(),
                 headers={"Content-Type": "application/json", "Host": request_host, "Origin": request_origin},
             ))
 
@@ -851,6 +851,10 @@ def test_http_react_roundtrip(tmp_path, serve_origin) -> None:
                 mark_read(request_host, request_origin)
             assert excinfo.value.code == 403
         assert ("mark_read", {"id": 1}) not in client.calls
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            mark_read(host, origin, notification_id=2)
+        assert excinfo.value.code == 403
+        assert ("mark_read", {"id": 2}) not in client.calls
         with mark_read(host, origin) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         assert payload["success"] is True and payload["marked_read"] is True
@@ -858,6 +862,12 @@ def test_http_react_roundtrip(tmp_path, serve_origin) -> None:
     finally:
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_dashboard_default_http_port_uses_canonical_browser_origin(tmp_path) -> None:
+    dashboard = DashboardServer({}, port=80, state_dir=tmp_path, client=FakeClient())
+    assert dashboard.origins_by_host()["localhost"] == "http://localhost"
+    assert dashboard.origins_by_host()["127.0.0.1"] == "http://127.0.0.1"
 
 
 @pytest.mark.parametrize("origin", [
