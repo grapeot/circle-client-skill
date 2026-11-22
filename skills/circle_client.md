@@ -58,9 +58,23 @@ description: >-
 
 - 服务端每次刷新重新 fetch 未读并做 enrichment（评论/消息正文走 `list_comments` / `list-chat-messages`），带 per-context 缓存和线程池；全部是只读 GET，首刷约几十秒，之后增量秒级。state 落 gitignored `data/dashboard.json`，动作追加入 `data/dashboard_log.jsonl`。
 - 反应按 target 类型分两套已验证契约：chat 消息 `POST /internal_api/reactions` body `{"unicode","chat_room_message"}`；post 评论 `POST /user_likes` body `{"user_likeable_type":"Comment","user_likeable_id","reaction_type"}`（named 类型 like/love/celebrate/support/insightful/funny，同一 payload 再发一次是在网页 UI 里 toggle 的语义；本工具只加不减，误点去网页手动取消）。未验证的 target 类型在代码里由 `VERIFIED_REACTION_KINDS` 门控，页面不显示反应按钮。
-- 服务只绑 127.0.0.1，校验 Origin；页面动作的每次点击 = 用户本人的一次明确授权（对应"人亲手点 Publish"）；server 不自动、不批量。CLI 的 `react` 命令仍走 dry-run + `--execute --confirm REACT`（agent 路径）。
+- 服务只绑 127.0.0.1，校验请求 Host，并要求动作的 Origin 与该 Host 对应。默认只接受本机地址。服务不自动执行动作；CLI 的 `react` 命令仍走 dry-run + `--execute --confirm REACT`（agent 路径）。
 - 对真实读者的回复不在页面里做：反应/已读之外需要回复时点「打开」去 Circle 网页（可见浏览器原则不变）。
 - 设计文档：`docs/design_dashboard.md`。
+
+### Tailscale Serve
+
+先为面板选一个未占用的 Tailscale HTTPS 端口，以独立端口的根路径 `/` 对外服务。用 `tailscale serve status` 查看现有入口。将示例域名换成你自己的 Tailscale DNS 名：
+
+```bash
+circle-client dashboard --no-open --port 8780 --serve-origin https://node.example.ts.net:8443
+# 在另一个终端运行：
+tailscale serve --bg --https=8443 http://127.0.0.1:8780
+```
+
+在 tailnet 内打开配置的 HTTPS 地址。`--serve-origin` 只填写小写 HTTPS 源地址（域名和非默认端口，不含路径或尾斜杠；默认 443 不写端口）。代理须保留原始 Host。此参数不会修改 Tailscale 配置，本机地址仍可用。停用该入口：`tailscale serve --https=8443 off`。
+
+**Serve 和 tailnet 网络访问规则是这里的访问门禁。** 面板不额外登录；能访问入口的人都能查看通知、点赞和标已读，使用的是运行面板那台机器上的 Circle 会话。只在信任的 tailnet 中使用，勿用 Tailscale Funnel 或公网代理。实际域名、`.env`、通知缓存与日志保留在本地，不提交到 Git。
 
 ## 批量打开通知（在浏览器里逐条打开）
 
@@ -152,7 +166,7 @@ course space 的 lesson 正文和 lesson 讨论不在 post 列表里，也不走
 .venv/bin/circle-client react --message-id <id> --emoji heart [--execute --confirm REACT]
 .venv/bin/circle-client open-notifications --input data/notifications.json --category lesson_comments
 .venv/bin/circle-client open-notifications --input data/notifications.json --category lesson_comments --execute --confirm OPEN-NOTIFICATIONS
-.venv/bin/circle-client dashboard [--port 8780] [--no-open]
+.venv/bin/circle-client dashboard [--port 8780] [--no-open] [--serve-origin HTTPS_ORIGIN]
 
 # 帖子、空间、评论、图片、聊天（V1）
 .venv/bin/circle-client spaces
@@ -248,7 +262,7 @@ mention 的 sgid 是服务端签名的，不能自己拼。知道名字时先 `s
 - `reset-count` 默认 dry-run；live 执行必须同时使用 `--execute --confirm RESET-COUNT`，并获得用户对当次动作的明确授权。
 - `mark-notification-read <id>` 把单条通知标记已读（`PATCH /internal_api/notifications/<id>/mark_as_read`，cookie+CSRF，200/204 均视为成功）；默认 dry-run，live 必须 `--execute --confirm MARK-NOTIFICATION-READ` 且当次授权。已读是服务端状态：`read_at` 落库后该通知从 unread fetch 中消失、`count` 下降；只读 comment 页面不会写 `read_at`，只有 inbox 里点开通知或本命令才会。
 - `react` 给 chat room 消息加 emoji 反应（`POST /internal_api/reactions`，body `{"unicode": <code>, "chat_room_message": <id>}`）；默认 dry-run，live 必须 `--execute --confirm REACT` 且当次授权。post 评论类反应（named like 类型，`POST /user_likes`）目前只在 dashboard 的页面动作里提供，CLI 暂不暴露。本工具只加反应、不 un-react；取消去 Circle 网页手动操作。
-- `dashboard` 起的本地服务只绑 127.0.0.1、校验 Origin；页面动作（react/mark_read）的每次点击是用户本人的一次明确授权动作，server 不自动批处理。全部动作追加审计日志（gitignored）。`/api/verify` 是只读回读端点（反应后重拉单 context 确认落地），不产生 mutation、不进审计日志；失败响应是固定错误消息（不透传上游响应内容）。
+- `dashboard` 起的服务只绑 127.0.0.1。默认只支持本机访问；配置 `--serve-origin` 后，受信的私网代理也可以转发完整面板操作。服务校验 Host 和动作 Origin。全部动作追加审计日志（gitignored）。`/api/verify` 是只读回读端点（反应后重拉单 context 确认落地），不产生 mutation、不进审计日志；失败响应是固定错误消息（不透传上游响应内容）。
 - `reset-count` 与 mark-all-read 是不同 mutation。当前没有 mark-all-read 能力（`mark-notification-read` 是单条，不是 mark-all），不得根据内部 endpoint 名字猜测或代替实现。
 - `open-browser` 只启动可见 Chrome、注入 cookie、打开一个社区页面后断开，不发任何 mutation；输出里没有 cookie 值。端口已被占用或 profile 已被锁住时拒绝启动，绝不附着到已有浏览器。目标 URL 必须是社区 host 上的 HTTPS 地址。
 - `open-notifications` 是本地只读动作：只读 fetch artifact、只调本地 URL opener，不联网、不动 Circle 状态，也不隐式标记已读。默认 dry-run，live 需要 `--execute --confirm OPEN-NOTIFICATIONS`；只打开落在 artifact `source.host` 上的 http(s) URL。

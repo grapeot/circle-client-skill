@@ -44,6 +44,17 @@ MAX_BACKWARD_PAGES = 12
 BACKWARD_PER_PAGE = 200
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+_DNS_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+_SERVE_ORIGIN_RE = re.compile(rf"https://(?P<host>{_DNS_LABEL}(?:\.{_DNS_LABEL})+)(?::(?P<port>[1-9][0-9]{{0,4}}))?")
+
+
+def _validate_serve_origin(origin: str) -> str:
+    match = _SERVE_ORIGIN_RE.fullmatch(origin)
+    if match and len(match["host"]) <= 253:
+        port = match["port"]
+        if port is None or (int(port) <= 65535 and port != "443"):
+            return origin
+    raise ValueError("--serve-origin requires a lowercase HTTPS origin (hostname and optional non-default port)")
 
 
 def room_uuid_of(notification: dict[str, Any]) -> str | None:
@@ -636,7 +647,9 @@ class DashboardServer:
         state_dir: Path = Path("data"),
         client: CircleClient | None = None,
         timeout: float = 30,
+        serve_origin: str | None = None,
     ) -> None:
+        self.serve_origin = None if serve_origin is None else _validate_serve_origin(serve_origin)
         self.client = client or CircleClient(settings, timeout=timeout)
         self.port = port
         self.state_dir = state_dir
@@ -676,8 +689,11 @@ class DashboardServer:
             warning = f"emotes.json 里跳过无效条目: {', '.join(warnings)}"
         return emotes, warning
 
-    def allowed_origins(self) -> set[str]:
-        return {f"http://127.0.0.1:{self.port}", f"http://localhost:{self.port}"}
+    def origins_by_host(self) -> dict[str, str]:
+        origins = {f"{host}:{self.port}": f"http://{host}:{self.port}" for host in ("127.0.0.1", "localhost")}
+        if self.serve_origin is not None:
+            origins[self.serve_origin.removeprefix("https://")] = self.serve_origin
+        return origins
 
     def build_state(self) -> dict[str, Any]:
         document = self.client.fetch_notifications()
@@ -894,6 +910,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(body)
 
@@ -916,7 +934,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
     def _run_action(self, name: str) -> int:
         dashboard = self._dashboard()
-        if self.headers.get("Origin") not in dashboard.allowed_origins():
+        if self.headers.get_all("Origin") != [self._expected_origin()]:
             self._send_json({"success": False, "error": "Origin rejected"}, status=403)
             return 403
         content_type = self.headers.get("Content-Type") or ""
@@ -947,7 +965,22 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self._send_json({"success": True, **result})
         return 200
 
+    def _expected_origin(self) -> str | None:
+        # Serve preserves the request Host. Never trust forwarded host/origin values.
+        hosts = self.headers.get_all("Host", [])
+        if len(hosts) != 1:
+            return None
+        return self._dashboard().origins_by_host().get(hosts[0].lower())
+
+    def _accept_host(self) -> bool:
+        if self._expected_origin() is not None:
+            return True
+        self._send_json({"success": False, "error": "Host rejected"}, status=403)
+        return False
+
     def do_GET(self) -> None:
+        if not self._accept_host():
+            return
         path = urlsplit(self.path).path
         if path == "/":
             self._send_bytes(
@@ -962,6 +995,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self) -> None:
+        if not self._accept_host():
+            return
         path = urlsplit(self.path).path
         if path in ("/api/react", "/api/verify", "/api/mark_read"):
             self._run_action(path.removeprefix("/api/"))
@@ -983,9 +1018,12 @@ def create_dashboard_server(
     state_dir: Path = Path("data"),
     timeout: float = 30,
     client: CircleClient | None = None,
+    serve_origin: str | None = None,
 ) -> tuple[_DashboardHTTPServer, str]:
     """Bind the dashboard to 127.0.0.1 (only) and return the live server."""
-    dashboard = DashboardServer(settings, port=port, state_dir=state_dir, timeout=timeout, client=client)
+    dashboard = DashboardServer(
+        settings, port=port, state_dir=state_dir, timeout=timeout, client=client, serve_origin=serve_origin
+    )
     server = _DashboardHTTPServer(("127.0.0.1", port), dashboard)
     actual_port = int(server.server_address[1])
     dashboard.port = actual_port

@@ -2,6 +2,11 @@
 
 ## Changelog
 
+### 2026-11-22 Tailscale Serve for the notification dashboard
+
+- `dashboard --serve-origin` opts in to a single HTTPS origin for a trusted private reverse proxy. The listener stays on loopback, validates Host, and requires an exact matching Origin on action requests. Tailscale Serve access policy gates the full dashboard, including writes; no app login or public listener is added.
+- Offline HTTP tests cover local and proxied reads/actions, rejected Host and Origin combinations, and invalid origin configuration. Docs use example values only.
+
 ### 2026-11-09 Read existing Paywall, Price and Coupon configuration
 
 - Added `paywalls list/get` and `coupons list/get` using the existing session, fixed GET endpoints and no redirect following. Errors retain HTTP status without upstream bodies. No configuration writes or new authentication flow.
