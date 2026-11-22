@@ -63,6 +63,10 @@ circle-client mark-notification-read 9000001
 
 完整参数见 `skills/circle_client.md`。
 
+## 在 Tailnet 里使用通知面板
+
+通知面板默认只在本机访问。要从其他设备使用，请按 [Tailscale Serve 配置说明](skills/circle_client.md#tailscale-serve) 设置专用 HTTPS 入口。能访问该入口的设备可以用本机 Circle 会话查看通知、点赞和标已读。
+
 ## 活动（event）
 
 Circle 活动的创建流程、字段、通知默认值和观察到的 endpoint 记录在 `skills/references/events.md`。本工具不提供活动写命令：创建、编辑和发布活动都在浏览器 UI 里完成，Publish 由人亲手点；本仓库里与活动相关的脚本只用于观察和回读。

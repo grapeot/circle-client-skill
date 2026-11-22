@@ -551,7 +551,7 @@ def cmd_open_notifications(args: argparse.Namespace) -> None:
 def cmd_dashboard(args: argparse.Namespace) -> None:
     settings = load_settings(Path(args.env_file))
     server, url = create_dashboard_server(
-        settings, port=args.port, state_dir=Path(args.directory), timeout=args.timeout
+        settings, port=args.port, state_dir=Path(args.directory), timeout=args.timeout, serve_origin=args.serve_origin
     )
     if not args.no_open:
         webbrowser.open(url)
@@ -1635,6 +1635,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run the local one-stop notification dashboard (binds 127.0.0.1)",
     )
     dashboard_cmd.add_argument("--port", type=int, default=8780)
+    dashboard_cmd.add_argument("--serve-origin", help="Allow this exact HTTPS origin from a trusted private proxy")
     dashboard_cmd.add_argument("--no-open", action="store_true", help="Do not open a browser window")
     dashboard_cmd.add_argument("--directory", default="data")
     dashboard_cmd.add_argument("--timeout", type=float, default=30)

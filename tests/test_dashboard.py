@@ -799,42 +799,87 @@ def test_http_endpoints(tmp_path) -> None:
         thread.join(timeout=5)
 
 
-def test_http_react_roundtrip(tmp_path) -> None:
+@pytest.mark.parametrize("serve_origin", [None, "https://node.example.test:8443", "https://node.example.test"])
+def test_http_mark_read_roundtrip(tmp_path, serve_origin) -> None:
     from circle_client_skill.dashboard import create_dashboard_server
 
     client = FakeClient(comments=[_comment(3, parent=None)])
-    document = _doc([_notification(id=1)])
+    document = _doc([_notification(id=1), _notification(id=2, notifiable_type="FlaggedContent")])
 
     def fetch_with_content() -> dict[str, Any]:
         return document
 
     client.fetch_notifications = fetch_with_content  # type: ignore[method-assign]
-    server, url = create_dashboard_server({}, port=0, state_dir=tmp_path, timeout=5, client=client)
+    server, url = create_dashboard_server(
+        {}, port=0, state_dir=tmp_path, timeout=5, client=client, serve_origin=serve_origin
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         dashboard = server.dashboard
         assert dashboard.port == int(url.split(":")[-1].split("/")[0])
+        local_origin = url.rstrip("/")
+        origin = serve_origin or local_origin
+        host = origin.split("://", 1)[1]
+        bad_host = "other.example.test:8443"
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            urllib.request.urlopen(urllib.request.Request(url + "api/state", headers={"Host": bad_host}))
+        assert excinfo.value.code == 403
         # The page loads state before actions exist; replicate that here.
-        with urllib.request.urlopen(url + "api/state") as resp:
+        with urllib.request.urlopen(urllib.request.Request(url + "api/state", headers={"Host": host})) as resp:
             state = json.loads(resp.read().decode("utf-8"))
-        assert state["success"] is True and state["state"]["count"] == 1
-        req = urllib.request.Request(
-            url + "api/mark_read",
-            method="POST",
-            data=json.dumps({"notification_id": 1}).encode(),
-            headers={
-                "Content-Type": "application/json",
-                "Origin": f"http://127.0.0.1:{dashboard.port}",
-            },
-        )
-        with urllib.request.urlopen(req) as resp:
+            assert resp.headers["Cache-Control"] == "no-store"
+            assert resp.headers["X-Frame-Options"] == "DENY"
+        assert state["success"] is True and state["state"]["count"] == 2
+
+        def mark_read(request_host, request_origin, notification_id=1):
+            return urllib.request.urlopen(urllib.request.Request(
+                url + "api/mark_read",
+                method="POST",
+                data=json.dumps({"notification_id": notification_id}).encode(),
+                headers={"Content-Type": "application/json", "Host": request_host, "Origin": request_origin},
+            ))
+
+        rejected = [(bad_host, origin), (host, "https://other.example.test:8443")]
+        if serve_origin:
+            rejected.append((host, local_origin))
+            rejected.append((local_origin.removeprefix("http://"), origin))
+        else:
+            rejected.append(("node.example.test:8443", "https://node.example.test:8443"))
+        for request_host, request_origin in rejected:
+            with pytest.raises(urllib.error.HTTPError) as excinfo:
+                mark_read(request_host, request_origin)
+            assert excinfo.value.code == 403
+        assert ("mark_read", {"id": 1}) not in client.calls
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            mark_read(host, origin, notification_id=2)
+        assert excinfo.value.code == 403
+        assert ("mark_read", {"id": 2}) not in client.calls
+        with mark_read(host, origin) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         assert payload["success"] is True and payload["marked_read"] is True
         assert ("mark_read", {"id": 1}) in client.calls
     finally:
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_dashboard_default_http_port_uses_canonical_browser_origin(tmp_path) -> None:
+    dashboard = DashboardServer({}, port=80, state_dir=tmp_path, client=FakeClient())
+    assert dashboard.origins_by_host()["localhost"] == "http://localhost"
+    assert dashboard.origins_by_host()["127.0.0.1"] == "http://127.0.0.1"
+
+
+@pytest.mark.parametrize("origin", [
+    "", "*", "null", "http://node.example.test", "https://node.example.test/",
+    "https://node.example.test/board", "https://node.example.test?",
+    "https://name:password@node.example.test", "https://node.example.test:443",
+    "https://node.example.test:65536", "https://node.example.test:08443",
+    "https://node.example.test\n", "https://node.example.test:0",
+])
+def test_invalid_serve_origin(tmp_path, origin) -> None:
+    with pytest.raises(ValueError, match="--serve-origin requires"):
+        DashboardServer({}, state_dir=tmp_path, client=FakeClient(), serve_origin=origin)
 
 
 def test_http_verify_roundtrip(tmp_path) -> None:

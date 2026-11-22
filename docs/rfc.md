@@ -121,7 +121,7 @@ circle-client fetch --group inbox --per-page 100 --output data/notifications.jso
 circle-client open-notifications --input data/notifications.json --category lesson_comments
 circle-client open-notifications --input data/notifications.json --category lesson_comments --execute --confirm OPEN-NOTIFICATIONS
 circle-client react --message-id <id> (--emoji heart|thumb_up|star | --unicode <hex-code>) --execute --confirm REACT   # dry-run 默认
-circle-client dashboard [--port 8780] [--no-open] [--directory data]    # 127.0.0.1，人用的交互面
+circle-client dashboard [--port 8780] [--no-open] [--directory data] [--serve-origin HTTPS_ORIGIN]
 
 # V1 — spaces, posts, comments, images, chat (all read ops are live, all mutations are dry-run-first)
 circle-client spaces
