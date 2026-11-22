@@ -43,9 +43,10 @@ circle-client configure --from-clipboard
 
 ```bash
 circle-client auth-status
+circle-client auth-status --check   # 联网确认 cookie 是已登录会话
 ```
 
-凭证过期后重新运行 `configure-browser` 或 `configure` 即可。
+公开社区对匿名访客也会返回 feed 和 `/internal_api/spaces`，所以读请求成功不代表已登录。`--check` 只用 cookie（不带 JWT）请求 `/internal_api/notification_preferences`：匿名返回 401，已登录返回 200。显示 `signed in: no` 时，写操作会以 401 失败。凭证过期后重新运行 `configure-browser` 或 `configure` 即可。
 
 ## 命令示例
 

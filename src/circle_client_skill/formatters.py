@@ -353,10 +353,20 @@ def format_auth_status(status: dict) -> str:
     cookie = "yes" if status.get("cookie_present") else "no"
     csrf = "yes" if status.get("csrf_present") else "no"
     jwt = "yes" if status.get("jwt_present") else "no"
-    return (
+    text = (
         f"configured: {configured}   host: {status.get('host', '')}\n"
         f"cookie: {cookie}   csrf: {csrf}   jwt: {jwt}"
     )
+    if "signed_in" in status:
+        signed_in = status["signed_in"]
+        if signed_in is True:
+            label = "yes"
+        elif signed_in is False:
+            label = "no (anonymous cookies; rerun configure-browser)"
+        else:
+            label = f"unknown ({status.get('signed_in_error', '')})"
+        text += f"\nsigned in: {label}"
+    return text
 
 
 def format_fetch_summary(summary: dict) -> str:

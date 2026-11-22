@@ -6,6 +6,7 @@ import json
 import pytest
 
 from circle_client_skill import cli
+from circle_client_skill.config import CircleSettings
 
 
 @pytest.mark.parametrize("action", ["approve", "reject"])
@@ -354,3 +355,58 @@ def test_open_notifications_execute_empty_is_error(tmp_path, monkeypatch) -> Non
     args = _open_args(tmp_path, category="comments", execute=True, confirm="OPEN-NOTIFICATIONS")
     with pytest.raises(ValueError):
         cli.cmd_open_notifications(args)
+
+
+@pytest.mark.parametrize(
+    ("verdict", "label"),
+    [(True, "signed in: yes"), (False, "signed in: no (anonymous cookies")],
+)
+def test_auth_status_check_reports_signed_in(verdict, label, monkeypatch, capsys) -> None:
+    class FakeClient:
+        def __init__(self, _settings) -> None:
+            pass
+
+        def session_is_signed_in(self) -> bool:
+            return verdict
+
+    settings = CircleSettings(
+        notifications_url="https://community.example.com/internal_api/notifications",
+        count_url="https://community.example.com/internal_api/notifications/new_notifications_count",
+        reset_count_url="https://community.example.com/internal_api/notifications/mark_all_as_read",
+        cookie="session=synthetic",
+        csrf_token="synthetic-csrf",
+    )
+    monkeypatch.setattr(cli, "load_settings", lambda _: settings)
+    monkeypatch.setattr(cli, "CircleClient", FakeClient)
+    args = cli.build_parser().parse_args(["auth-status", "--check"])
+    args.handler(args)
+    assert label in capsys.readouterr().out
+
+
+def test_auth_status_check_reports_unknown_on_error(monkeypatch, capsys) -> None:
+    class FailingClient:
+        def __init__(self, _settings) -> None:
+            pass
+
+        def session_is_signed_in(self) -> bool:
+            raise cli.CircleClientError("Circle returned HTTP 500")
+
+    settings = CircleSettings(
+        notifications_url="https://community.example.com/internal_api/notifications",
+        count_url="https://community.example.com/internal_api/notifications/new_notifications_count",
+        reset_count_url="https://community.example.com/internal_api/notifications/mark_all_as_read",
+        cookie="session=synthetic",
+    )
+    monkeypatch.setattr(cli, "load_settings", lambda _: settings)
+    monkeypatch.setattr(cli, "CircleClient", FailingClient)
+    args = cli.build_parser().parse_args(["auth-status", "--check", "--json"])
+    args.handler(args)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["signed_in"] is None
+    assert "HTTP 500" in payload["signed_in_error"]
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "abc"])
+def test_configure_browser_rejects_non_positive_timeout(value) -> None:
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["configure-browser", "--timeout", value])

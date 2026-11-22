@@ -76,6 +76,63 @@ def _iter_record_pages(
     raise CircleClientError(f"pagination exceeded max_pages={max_pages}")
 
 
+# Answers 401 to anonymous visitors and 200 to any signed-in user, whether or not the
+# user has joined a space. Public communities answer /internal_api/spaces anonymously,
+# so a successful read there proves nothing about the session.
+SIGNED_IN_PROBE_PATH = "/internal_api/notification_preferences"
+
+
+def signed_in_from_response(status_code: int, content_type: str | None) -> bool | None:
+    """Map a SIGNED_IN_PROBE_PATH response to signed in (True), anonymous (False) or unknown.
+
+    Only a JSON 200 counts: an SSO host or SPA shell answers any path with 200 HTML.
+    """
+    if status_code == 200:
+        return "json" in (content_type or "").lower() or None
+    if status_code in (401, 403) or 300 <= status_code < 400:
+        return False
+    return None
+
+
+def origin_of(url: str) -> str | None:
+    """scheme://host of an http(s) URL, or None for about:blank and the like."""
+    parts = urlsplit(url or "")
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return None
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def cookie_domain_matches(cookie_domain: str, host: str) -> bool:
+    """Whether a browser would send a cookie for `cookie_domain` to `host`.
+
+    Matches on whole labels: a cookie for `.circle.so` belongs to `app.circle.so`,
+    never to `le.so`. The detected host can come from whatever page the tab is on,
+    so a substring match would hand the community's cookies to an unrelated host.
+    """
+    domain = (cookie_domain or "").lstrip(".").lower()
+    host = (host or "").lower()
+    return bool(domain) and (host == domain or host.endswith("." + domain))
+
+
+def is_login_url(url: str) -> bool:
+    lowered = (url or "").lower()
+    return "login" in lowered or "sign_in" in lowered or "sign-in" in lowered
+
+
+def is_navigation_error(exc: BaseException) -> bool:
+    text = str(exc)
+    return "Execution context was destroyed" in text or "navigation" in text.lower()
+
+
+def is_closed_error(exc: BaseException) -> bool:
+    text = str(exc)
+    return any(
+        marker in text
+        for marker in ("Target page, context or browser has been closed", "Browser has been closed",
+                       "Connection closed", "Target closed")
+    )
+
+
 class CircleClientError(RuntimeError):
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)
@@ -458,6 +515,36 @@ class CircleClient:
     def list_spaces(self) -> dict[str, Any]:
         """List all visible spaces in the community."""
         return self._request("GET", f"{self.settings.base_url}/internal_api/spaces")
+
+    def session_is_signed_in(self) -> bool:
+        """Check online whether the stored cookie + CSRF session is signed in.
+
+        Sends the cookie session only (no Authorization header), since that is what
+        writes use; a stale JWT must not mask a good cookie or the other way round.
+        """
+        headers = self.settings.headers()
+        headers.pop("Authorization", None)
+        headers["Accept"] = "application/json"
+        try:
+            response = self.session.get(
+                f"{self.settings.base_url}{SIGNED_IN_PROBE_PATH}",
+                headers=headers,
+                timeout=self.timeout,
+                allow_redirects=False,
+            )
+        except requests.RequestException as exc:
+            raise CircleClientError(f"Circle request failed: {type(exc).__name__}") from exc
+        verdict = signed_in_from_response(
+            response.status_code, response.headers.get("content-type")
+        )
+        if verdict is None:
+            raise CircleClientError(
+                f"Circle returned HTTP {response.status_code} "
+                f"({response.headers.get('content-type') or 'no content-type'}); "
+                "is the configured host the community itself?",
+                status_code=response.status_code,
+            )
+        return verdict
 
     def get_space(self, space_id: int) -> dict[str, Any]:
         """Get metadata for a single space."""

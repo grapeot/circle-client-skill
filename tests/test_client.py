@@ -228,3 +228,95 @@ def test_mark_notification_read_raises_on_non_success_status() -> None:
     with pytest.raises(CircleClientError) as excinfo:
         client.mark_notification_read(9000001, execute=True)
     assert excinfo.value.status_code == 422
+
+
+
+def _probe_settings(authorization: str | None = None) -> CircleSettings:
+    return CircleSettings(
+        notifications_url="https://community.example.com/internal_api/notifications",
+        count_url="https://community.example.com/internal_api/notifications/new_notifications_count",
+        reset_count_url="https://community.example.com/internal_api/notifications/mark_all_as_read",
+        cookie="session=synthetic",
+        csrf_token="synthetic-csrf",
+        authorization=authorization,
+    )
+
+
+class StatusSession:
+    def __init__(self, status_code: int, content_type: str = "application/json; charset=utf-8") -> None:
+        self.status_code = status_code
+        self.content_type = content_type
+        self.calls: list[dict[str, Any]] = []
+
+    def get(self, url: str, **kwargs: Any) -> FakeResponse:
+        self.calls.append({"url": url, **kwargs})
+        response = FakeResponse({})
+        response.status_code = self.status_code
+        response.headers = {"content-type": self.content_type}
+        return response
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [(200, True), (401, False), (403, False), (302, False)],
+)
+def test_session_is_signed_in_maps_probe_status(status: int, expected: bool) -> None:
+    client = CircleClient(_probe_settings(authorization="Bearer synthetic.jwt.value"))
+    session = StatusSession(status)
+    client.session = session  # type: ignore[assignment]
+    assert client.session_is_signed_in() is expected
+    call = session.calls[0]
+    assert call["url"].endswith("/internal_api/notification_preferences")
+    assert call["allow_redirects"] is False
+    # The cookie session is what writes use; the JWT must not decide the verdict.
+    assert "Authorization" not in call["headers"]
+
+
+def test_session_is_signed_in_rejects_html_200_from_non_community_host() -> None:
+    client = CircleClient(_probe_settings())
+    client.session = StatusSession(200, "text/html; charset=utf-8")  # type: ignore[assignment]
+    with pytest.raises(CircleClientError, match="community itself"):
+        client.session_is_signed_in()
+
+
+def test_session_is_signed_in_raises_on_unexpected_status() -> None:
+    client = CircleClient(_probe_settings())
+    client.session = StatusSession(500)  # type: ignore[assignment]
+    with pytest.raises(CircleClientError, match="HTTP 500"):
+        client.session_is_signed_in()
+
+
+def test_url_and_error_helpers() -> None:
+    from circle_client_skill.client import (
+        is_closed_error,
+        is_login_url,
+        is_navigation_error,
+        origin_of,
+        signed_in_from_response,
+    )
+
+    assert origin_of("https://community.example.com/c/posts?x=1") == "https://community.example.com"
+    assert origin_of("about:blank") is None
+    assert is_login_url("https://auth.example.com/sign_in")
+    assert not is_login_url("https://community.example.com/feed")
+    assert is_navigation_error(Exception("Execution context was destroyed, most likely because of a navigation"))
+    assert not is_navigation_error(Exception("ReferenceError: foo is not defined"))
+    assert is_closed_error(Exception("Target page, context or browser has been closed"))
+    assert signed_in_from_response(500, "application/json") is None
+    assert signed_in_from_response(200, "application/json; charset=utf-8") is True
+    # An SSO host or SPA shell answers every path with 200 HTML: not a sign-in.
+    assert signed_in_from_response(200, "text/html; charset=utf-8") is None
+
+
+def test_cookie_domain_matches_whole_labels_only() -> None:
+    from circle_client_skill.client import cookie_domain_matches
+
+    assert cookie_domain_matches(".circle.so", "app.circle.so")
+    assert cookie_domain_matches("community.example.com", "community.example.com")
+    assert cookie_domain_matches(".example.com", "www.community.example.com")
+    # The detected host can come from any page the tab reached during login; a host
+    # that merely ends with the same characters must not receive the session cookies.
+    assert not cookie_domain_matches(".circle.so", "le.so")
+    assert not cookie_domain_matches(".circle.so", "evilcircle.so")
+    assert not cookie_domain_matches("community.example.com", "example.com")
+    assert not cookie_domain_matches("", "example.com")
