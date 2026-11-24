@@ -2,6 +2,10 @@
 
 ## Changelog
 
+### 2026-11-23 Branded App editing reference
+
+- Added a focused workflow covering Home versus bottom navigation, access groups, and real-device audience checks. Recorded an observed Admin Preview visibility mismatch and the rollback check. No CLI behavior changed.
+
 ### 2026-11-22 Tailscale Serve for the notification dashboard
 
 - `dashboard --serve-origin` opts in to a single HTTPS origin for a trusted private reverse proxy. The listener stays on loopback, validates Host, and requires an exact matching Origin on action requests. Tailscale Serve access policy gates the full dashboard, including writes; no app login or public listener is added.

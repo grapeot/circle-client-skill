@@ -11,6 +11,8 @@ description: >-
   existing event, load references/live_replay_exports.md; an explicitly authorized
   published-event edit may use Save in the visible browser, followed by readback.
   Reads existing Paywall, nested Price, and Coupon configuration with the saved session.
+  Routes Branded App custom screens, embeds, and navigation changes through the
+  visible App Builder and real-device audience checks.
   Paywall creation, trial extension, billing-date changes, and recurring
   transaction refunds are not CLI commands; route them to references/paywall_subscriptions.md.
 ---
@@ -32,6 +34,7 @@ description: >-
 - 用户要找 Circle Live 回放、导出 chat/Q&A，或把去邮箱的聊天记录附到现有活动：走 [`references/live_replay_exports.md`](references/live_replay_exports.md)。
 - 用户要建测试 paywall、延长 trial、改 billing date，或退一笔周期性续费交易：没有对应 CLI。走「Paywall 与个人 trial 改期」。
 - 用户要枚举现有 Paywall、嵌套 Price、Coupon 及精确适用范围：走「只读商品与优惠券配置」。
+- 用户要给 Branded App 加功能入口、Custom HTML、Home 标签或底栏入口，或测试嵌入页登录：先读 [`references/branded_apps.md`](references/branded_apps.md)，以实时 Builder 和真机验证为准。
 
 ## 看通知 / 通知可视化（首要工作流）
 
