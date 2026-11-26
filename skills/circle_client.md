@@ -25,6 +25,8 @@ description: >-
 
 **浏览器默认可见。** 浏览器驱动的观察和交互默认走人类可见的 Chrome：用 `open-browser` 打开窗口，再连接它输出的 CDP。不要启动 headless，除非用户明确要求，或当前环境没有 GUI。
 
+**同一任务复用一个窗口。** 多步操作先用 `open-browser` 启动一次专用 Chrome，保留它返回的本地 CDP 地址。后续步骤用 `chromium.connect_over_cdp` 连回该地址，先核对当前社区和目标标签页，再继续；需要同时保留两个页面时，在同一个窗口开新标签。每段脚本结束只断开 Playwright，不关闭 Chrome 或标签页。等用户确认时也保留窗口，恢复后重新核对目标和当前状态。仅在原会话确实关闭或不可用时重开，不连接其他任务的窗口。
+
 ## 何时使用
 
 - 用户要看、导出、汇总或筛选自己的 Circle notifications。
@@ -399,6 +401,7 @@ print(probe.guard.blocked)                             # 被拦下的写请求�
 ```
 
 - `ProbeSession` 从现有 `.env` 读 cookie 注入 Chromium，默认 `headless=False`（可见窗口）。不打印凭证；page/context/browser/Playwright 在 `finally` 里逐个关闭，一步失败不影响后面几步。service worker 被禁用，避免绕过路由拦截。
+- 单次短探查可以用 `ProbeSession` 自动清理。多步探查尽量在同一次 `with ProbeSession(...)` 内完成；需要跨脚本或跨轮保留页面时，按上面的 `open-browser` + CDP 路径复用专用窗口。`open-browser` 不会安装 `ProbeSession` 的写拦截；需要严格只读时，必须先确保有效拦截再进入可能自动写入的页面（如打开私信会标已读）。如无法确保拦截，改用只读 CLI 或在同一次受保护的 `ProbeSession` 内完成。
 - `RouteGuard` 装在整个 browser context 上：发往 community host 的非 GET/HEAD/OPTIONS 请求一律 abort 并记进 `guard.blocked`；其他 host（CDN、分析、S3 直传）不管。默认放行列表为空。注意打开页面本身就会触发写请求（`reset_unread_count`、analytics、Cloudflare beacon 等），在 `blocked` 里看到它们是正常的。
 - `RequestCapture` 只记 `/internal_api/` 的 XHR/fetch。`dump()` 写盘前做两层脱敏：Cookie/Authorization/CSRF 等字段名、URL 里的签名参数，以及 `.env` 里实际的 cookie/CSRF/JWT 值，无论出现在哪里都替换成 `[REDACTED]`。响应正文里仍可能有成员姓名等私人数据，所以输出只放 gitignored 的 `data/`。
 - **放宽白名单**：只有当人已经授权一次具体的浏览器写操作时，才给 `ProbeSession(allow=...)` 传规则，而且只放那一个 endpoint，例如 `allow=("POST /internal_api/spaces/1111/events",)`。规则格式是 `"[METHOD] /path"`，path 按 fnmatch 匹配、忽略 query，`*` 可跨 `/`；不写 method 表示任意非 GET 方法。不要放 `/internal_api/*` 这种大范围规则。上传封面这类连带请求要逐个列出（例如 `"POST /internal_api/direct_uploads"`）。
